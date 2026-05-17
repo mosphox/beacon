@@ -1,0 +1,59 @@
+services:
+  init-volume:
+    image: alpine:3.21
+    container_name: beacon-init-volume
+    volumes:
+      - beacon-data:/app/data
+    command: sh -c "chown -R 1000:1000 /app/data && chmod -R 755 /app/data"
+    restart: "no"
+
+  backend:
+    build: ./backend
+    container_name: beacon-backend
+    restart: unless-stopped
+    depends_on:
+      init-volume:
+        condition: service_completed_successfully
+    environment:
+      - GEOIP_UPDATE_INTERVAL_HOURS=${GEOIP_UPDATE_INTERVAL_HOURS}
+      - MAXMIND_ACCOUNT_ID=${MAXMIND_ACCOUNT_ID}
+      - MAXMIND_LICENSE_KEY=${MAXMIND_LICENSE_KEY}
+      - DATA_DIR=/app/data
+    volumes:
+      - beacon-data:/app/data
+    expose:
+      - "8000"
+    logging:
+      options:
+        max-size: "10m"
+        max-file: "1"
+
+  frontend:
+    build: ./frontend
+    container_name: beacon-frontend
+    restart: unless-stopped
+    expose:
+      - "3000"
+    logging:
+      options:
+        max-size: "10m"
+        max-file: "1"
+
+  nginx:
+    image: nginx:alpine
+    container_name: beacon-nginx
+    restart: unless-stopped
+    depends_on:
+      - frontend
+      - backend
+    ports:
+      - "${HOST}:${PORT}:80"
+    volumes:
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+    logging:
+      options:
+        max-size: "10m"
+        max-file: "1"
+
+volumes:
+  beacon-data:

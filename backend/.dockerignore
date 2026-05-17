@@ -1,0 +1,6 @@
+data/
+*_test.go
+Dockerfile
+.dockerignore
+*.swp
+*.swo

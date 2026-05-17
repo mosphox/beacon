@@ -14,6 +14,9 @@
 # Output of the go coverage tool, specifically when used with LiteIDE
 *.out
 
+# Go test files
+*_test.go
+
 # Dependency directories (remove the comment below to include it)
 # vendor/
 
@@ -23,3 +26,26 @@ go.work.sum
 
 # env file
 .env
+
+# Node / Next.js
+/frontend/node_modules
+/frontend/.next
+/frontend/out
+/frontend/next-env.d.ts
+
+# GeoIP databases (downloaded at runtime)
+/data/
+
+# Backend build output
+/backend/myip
+/backend/myip.exe
+
+# IDE
+.idea
+.vscode
+*.swp
+*.swo
+
+# Misc
+.DS_Store
+Thumbs.db
