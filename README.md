@@ -5,6 +5,8 @@ IP address enriched with GeoIP data (city, country, ASN). The same URL serves a
 styled web page to browsers and machine-readable output to everything else,
 chosen automatically from the request's `Accept` header.
 
+![Beacon](assets/preview.png)
+
 ## Features
 
 - **One URL, three audiences.** Browsers get a Next.js page; `curl` gets plain
