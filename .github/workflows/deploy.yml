@@ -1,0 +1,35 @@
+name: Deploy to server
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    concurrency:
+      group: deploy-${{ github.ref }}
+      cancel-in-progress: false
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.HOST }}
+          port: ${{ secrets.PORT }}
+          username: ${{ secrets.USERNAME }}
+          key: ${{ secrets.SSHKEY }}
+          script: |
+            set -e
+            echo "::group::Pulling latest code"
+            cd /opt/beacon
+            git fetch origin main
+            git reset --hard origin/main
+            echo "::endgroup::"
+            echo "::group::Rebuilding containers"
+            docker compose up -d --build
+            echo "::endgroup::"
+            echo "::group::Cleanup"
+            docker image prune -f
+            echo "::endgroup::"
