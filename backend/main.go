@@ -10,7 +10,6 @@ import (
 	"os"
 	"os/signal"
 	"regexp"
-	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -20,7 +19,7 @@ import (
 	"beacon/internal/render"
 )
 
-var ipv4Re = regexp.MustCompile(`^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$`)
+var ipv4ShapeRe = regexp.MustCompile(`^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$`)
 
 type ipCheck int
 
@@ -58,7 +57,7 @@ func main() {
 	})
 	mux.HandleFunc("GET /{ip...}", func(w http.ResponseWriter, r *http.Request) {
 		ipPath := r.PathValue("ip")
-		if c := checkIPv4(ipPath); c != ipValid {
+		if c := checkIP(ipPath); c != ipValid {
 			status, detail := ipCheckError(c)
 			writeError(w, status, detail)
 			return
@@ -91,18 +90,14 @@ func main() {
 	}
 }
 
-func checkIPv4(p string) ipCheck {
-	m := ipv4Re.FindStringSubmatch(p)
-	if m == nil {
-		return ipMalformed
+func checkIP(p string) ipCheck {
+	if net.ParseIP(p) != nil {
+		return ipValid
 	}
-	for _, oct := range m[1:] {
-		n, _ := strconv.Atoi(oct)
-		if n > 255 {
-			return ipOctetOutOfRange
-		}
+	if ipv4ShapeRe.MatchString(p) {
+		return ipOctetOutOfRange
 	}
-	return ipValid
+	return ipMalformed
 }
 
 func ipCheckError(c ipCheck) (int, string) {
