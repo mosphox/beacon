@@ -70,6 +70,9 @@ func (resp IPResponse) PlainText() string {
 			parts = append(parts, resp.Country)
 		}
 	}
+	if resp.ASN != "" {
+		parts = append(parts, resp.ASN)
+	}
 	return strings.Join(parts, " ") + "\n"
 }
 

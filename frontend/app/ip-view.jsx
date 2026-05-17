@@ -66,6 +66,7 @@ export default function IpView() {
   const city = data?.city;
   const country = data?.country;
   const countryCode = data?.['country-code'];
+  const asn = data?.asn;
 
   const locationParts = [];
   if (city) {
@@ -124,6 +125,7 @@ export default function IpView() {
           ) : (
             <div className="location unknown">Location unknown</div>
           ))}
+        {status === 'ready' && asn && <div className="asn">{asn}</div>}
         <div className="copy-hint">Click to copy</div>
       </div>
     </>

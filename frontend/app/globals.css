@@ -112,6 +112,14 @@ body::before {
     color: #a78bfa;
 }
 
+.asn {
+    margin-top: 0.5rem;
+    font-family: var(--font-jetbrains), monospace;
+    font-size: 0.9rem;
+    color: #6b7280;
+    font-weight: 400;
+}
+
 .copy-hint {
     margin-top: 2rem;
     font-size: 0.75rem;
