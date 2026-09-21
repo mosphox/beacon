@@ -53,9 +53,13 @@ fixture.
   database had no answer" into "the answer is empty".
 - Values a server measured are monospaced; words a human wrote are not. See `DESIGN.md`.
 - Every interactive element is keyboard reachable with a visible focus ring.
-- Data values are selectable. The page sets `user-select: none` broadly so the layout does
-  not feel like a document, but anything someone might copy — addresses, hashes,
-  fingerprints — must opt back in. A hash you cannot select is useless.
+- Data values in the readout are selectable. The page sets `user-select: none` broadly so
+  the layout does not feel like a document, but anything someone might copy — addresses,
+  hashes, fingerprints — must opt back in there. A hash you cannot select is useless.
+- The hero address is the exception and is deliberately **not** selectable. It is a button
+  whose whole purpose is copying, and a drag-select fights the click. The same address
+  appears as a selectable row in the readout for anyone who wants to take it by hand, so
+  nothing is actually lost.
 - Mobile first. Check 375px before 1280px.
 
 ## Definition of done

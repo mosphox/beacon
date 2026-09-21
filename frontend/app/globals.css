@@ -151,8 +151,10 @@ body::before {
 .ip,
 button.ip {
   position: relative;
-  display: inline-grid;
-  place-items: center;
+  display: inline-flex;
+  align-items: center;
+  /* Scales with the type, so the brackets sit the same distance out at any size. */
+  gap: 0.18em;
   /* Sized from the character count so a full IPv6 address stays on one line while a
      short IPv4 one still fills the hero. The coefficient leaves room for the page
      gutters, and the floor is low enough that a 20-character address still fits a
@@ -163,13 +165,43 @@ button.ip {
   line-height: 1.1;
   letter-spacing: -0.02em;
   padding: 8px;
-  user-select: text;
+  /* Not selectable: this is a button you click to copy, and a drag-select fights that.
+     The readout below carries the same address in a selectable row for anyone who wants
+     to take it by hand. */
+  user-select: none;
+}
+
+.ip-stack {
+  display: inline-grid;
+  place-items: center;
 }
 
 .ip-text,
 .ip-glow {
   grid-area: 1 / 1;
   white-space: nowrap;
+}
+
+/* Brackets mark the value the way a shell prompt does. They hold their space at rest, so
+   revealing them shifts nothing. */
+.ip-bracket {
+  font-weight: 300;
+  color: var(--accent);
+  opacity: 0;
+  transform: translateX(0.18em);
+  transition:
+    opacity 180ms ease-out,
+    transform 180ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+.ip-bracket.right {
+  transform: translateX(-0.18em);
+}
+
+button.ip:hover .ip-bracket,
+button.ip:focus-visible .ip-bracket {
+  opacity: 0.8;
+  transform: none;
 }
 
 /* One gradient across the whole address, clipped to the glyphs.
@@ -185,30 +217,13 @@ button.ip {
   -webkit-text-fill-color: transparent;
 }
 
-/* The glow is flat colour with no clipping, so unlike the address itself it can carry a
-   filter and a transform safely. That makes it the only part of the hero that can react
-   to the pointer — so the bloom is what answers a hover, rather than the address
-   changing size. */
+/* The glow is flat colour with no clipping, so unlike the address itself it can safely
+   carry a filter. It handles the entrance and nothing else. */
 .ip-glow {
   color: #a78bfa;
   filter: blur(28px);
   opacity: 0.55;
   pointer-events: none;
-  transform: scale(1);
-  transition:
-    opacity 200ms cubic-bezier(0.2, 0, 0, 1),
-    transform 200ms cubic-bezier(0.2, 0, 0, 1);
-}
-
-button.ip:hover .ip-glow,
-button.ip:focus-visible .ip-glow {
-  opacity: 0.85;
-  transform: scale(1.08);
-}
-
-button.ip:active .ip-glow {
-  opacity: 1;
-  transform: scale(1.02);
 }
 
 button.ip {

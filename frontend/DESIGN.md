@@ -107,10 +107,10 @@ background compositing, and the address renders as a fragment or as nothing at a
 failure is width-dependent, so it will look correct at one address length and break at
 another. Animate the hero wrapper or the blurred glow copy instead; both are safe.
 
-Hover belongs to the glow, not the address. The address cannot be transformed without
-breaking its clipped gradient, and scaling it would be the generic "make it bigger"
-response anyway; the bloom brightening and spreading says the same thing in the page's own
-vocabulary and shifts no layout.
+Hover is answered by brackets closing in around the address, the way a shell prompt marks
+a value — not by the address moving or growing. They hold their space at rest, so
+revealing them shifts nothing, and the address stays exactly where the eye left it. The
+glow handles the entrance and then stops participating.
 
 Durations 120ms micro, 200ms standard. Animate `opacity` and `transform` only.
 `prefers-reduced-motion` removes the gradient drift and the fade, and is already honoured

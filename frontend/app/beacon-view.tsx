@@ -145,7 +145,9 @@ export default function BeaconView() {
             <h1 className="hero-h1">
               {loading ? (
                 <span className="ip">
-                  <span className="ip-text">· · ·</span>
+                  <span className="ip-stack">
+                    <span className="ip-text">· · ·</span>
+                  </span>
                 </span>
               ) : (
                 <button
@@ -161,11 +163,19 @@ export default function BeaconView() {
                      full IPv6 address stays on one line. */
                   style={{ '--ip-chars': data.ip.length } as React.CSSProperties}
                 >
-                  <span className="ip-glow" aria-hidden="true">
-                    {data.ip}
+                  <span className="ip-bracket left" aria-hidden="true">
+                    [
                   </span>
-                  <span className="ip-text" aria-hidden="true">
-                    {data.ip}
+                  <span className="ip-stack">
+                    <span className="ip-glow" aria-hidden="true">
+                      {data.ip}
+                    </span>
+                    <span className="ip-text" aria-hidden="true">
+                      {data.ip}
+                    </span>
+                  </span>
+                  <span className="ip-bracket right" aria-hidden="true">
+                    ]
                   </span>
                 </button>
               )}
