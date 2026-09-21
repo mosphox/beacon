@@ -1,5 +1,6 @@
 'use client';
 
+import { animate, useReducedMotion } from 'motion/react';
 import { usePathname } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 
@@ -40,6 +41,8 @@ export default function BeaconView() {
   const [copied, setCopied] = useState(0);
   const [showAll, setShowAll] = useState<Record<string, boolean>>({});
   const readoutRef = useRef<HTMLDivElement>(null);
+  const addressRef = useRef<HTMLButtonElement>(null);
+  const reducedMotion = useReducedMotion();
 
   useEffect(() => {
     let live = true;
@@ -64,6 +67,26 @@ export default function BeaconView() {
       live = false;
     };
   }, [pathname, attempt]);
+
+  useEffect(() => {
+    const root = addressRef.current;
+    if (reducedMotion || !root) return;
+
+    // Glyphs move and fade only. They carry a background-clip: text gradient, and any
+    // filter on such an element puts it in its own painting context where the clipped
+    // background stops compositing — the address renders as nothing at all.
+    // Only the glow is animated. It is flat colour with no clipped background, so a
+    // filter on it is safe; pulling it into focus behind the address is what reads as the
+    // address resolving out of light. The address itself rides the hero's CSS fade-up.
+    const glow = root.querySelector('.ip-glow');
+    if (glow) {
+      animate(
+        glow,
+        { opacity: [0, 0.55], filter: ['blur(60px)', 'blur(28px)'] },
+        { duration: 1.1, ease: [0.2, 0, 0, 1] },
+      );
+    }
+  }, [reducedMotion, data?.ip]);
 
   useEffect(() => {
     if (copied === 0) return;
@@ -124,24 +147,34 @@ export default function BeaconView() {
 
             <h1 className="hero-h1">
               {loading ? (
-                <span className="ip">· · ·</span>
+                <span className="ip">
+                  <span className="ip-text">· · ·</span>
+                </span>
               ) : (
                 <button
+                  ref={addressRef}
                   type="button"
                   className="ip"
                   onClick={copy}
                   translate="no"
+                  /* The split glyphs are decorative once the label carries the address;
+                     without this some screen readers spell it out character by character. */
+                  aria-label={`Copy IP address ${data.ip}`}
                   /* Genuinely runtime-computed: the type scales to the address length so a
                      full IPv6 address stays on one line. */
                   style={{ '--ip-chars': data.ip.length } as React.CSSProperties}
                 >
-                  {data.ip}
+                  <span className="ip-glow" aria-hidden="true">
+                    {data.ip}
+                  </span>
+                  <span className="ip-text" aria-hidden="true">
+                    {data.ip}
+                  </span>
                 </button>
               )}
             </h1>
 
             {!loading ? <HeroPlace data={data} /> : null}
-            {!loading ? <p className="hero-hint">Click the address to copy it</p> : null}
           </div>
 
           {!loading ? (
@@ -149,9 +182,9 @@ export default function BeaconView() {
               type="button"
               className="scroll-cue"
               onClick={() => readoutRef.current?.scrollIntoView({ block: 'start' })}
+              aria-label="Scroll to connection details"
             >
-              Everything else
-              <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true">
+              <svg width="20" height="20" viewBox="0 0 12 12" aria-hidden="true">
                 <path
                   d="M2 4.5 6 8.5 10 4.5"
                   fill="none"

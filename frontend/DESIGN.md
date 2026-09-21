@@ -29,7 +29,7 @@ not. That split is the whole typographic system and it should be followed litera
 
 | Role | Family | Size / line-height | Weight | Tracking |
 | --- | --- | --- | --- | --- |
-| IP (hero) | JetBrains Mono | `clamp(2rem, 8vw, 4rem)` / 1.1 | 700 | 0 |
+| IP (hero) | JetBrains Mono | `clamp(1rem, 125vw/chars, 6rem)` / 1.1 | 700 | −0.02em |
 | Hero label | Outfit | 0.875rem / 1.4 | 300 | 0.3em, uppercase |
 | Section heading | Outfit | 1.125rem / 1.3 | 600 | −0.01em |
 | Row label | Outfit | 0.8125rem / 1.4 | 300 | 0 |
@@ -64,11 +64,12 @@ design decision, not a chore.
 | `--ok` | `#10b981` | sources agree, copy confirmation |
 | `--warn` | `#f59e0b` | sources disagree |
 
-Two atmospheric radial washes (violet at 20%/80%, cyan at 80%/20%) sit fixed behind
-everything. They are the only decoration in the system and they do not scroll.
+Four atmospheric radial washes — teal, violet, magenta, green — sit fixed behind
+everything over a four-stop base, so the corners differ from each other rather than being
+one navy ramp. They are the only decoration in the system and they do not scroll.
 
-The three-stop gradient belongs to the IP and to nothing else. Reusing it on headings or
-buttons would spend the page's one memorable moment on furniture.
+The cyan→violet→pink gradient belongs to the address and to nothing else. Reusing it on
+headings or buttons would spend the page's one memorable moment on furniture.
 
 Contrast: `--ink` on `--bg-1` is 12.8:1, `--ink-2` 6.9:1, `--ink-3` 4.6:1. `--ink-4` is for
 non-essential hints only and never carries information on its own.
@@ -95,14 +96,27 @@ genuinely floats.
 
 ## Motion
 
-One orchestrated moment: the hero fades up once on load. Nothing else animates on scroll.
-The IP's gradient drifts continuously because it already did and it is the page's signature.
+One orchestrated moment: the hero fades up once on load, and the glow behind the address
+pulls from a wide blur into focus. Nothing else animates on scroll, and the address's
+gradient no longer drifts — the arrival is the moment.
+
+**The address itself must never be animated directly.** It carries a
+`background-clip: text` gradient, and anything that gives it or its children a painting
+context of their own — a per-glyph opacity, a transform, a mask — stops the clipped
+background compositing, and the address renders as a fragment or as nothing at all. The
+failure is width-dependent, so it will look correct at one address length and break at
+another. Animate the hero wrapper or the blurred glow copy instead; both are safe.
 
 Durations 120ms micro, 200ms standard. Animate `opacity` and `transform` only.
 `prefers-reduced-motion` removes the gradient drift and the fade, and is already honoured
 globally.
 
 ## The two treatments that carry this design
+
+**The address is the page's one piece of spectacle.** It is set from its own character
+count so a 39-character IPv6 address and a short IPv4 one both fill the hero without
+wrapping, over a blurred duplicate of itself that does the glowing. A blurred copy rather
+than stacked text-shadows: softer, cheaper, and it leaves the crisp copy sharp.
 
 **Fingerprints are structured, so show the structure.** A JA4 string is not a blob — it is
 `t13d4907h2` (version, SNI, counts, ALPN) `_` a truncated hash of the cipher list `_` a

@@ -4,8 +4,24 @@
     {
       "name": "beacon-frontend",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev", "--prefix", "frontend"],
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "--prefix",
+        "frontend"
+      ],
       "port": 3099
+    },
+    {
+      "name": "beacon-lab",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "lab",
+        "--prefix",
+        "frontend"
+      ],
+      "port": 3399
     }
   ]
 }

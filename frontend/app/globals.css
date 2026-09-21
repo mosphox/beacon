@@ -50,7 +50,7 @@ html {
 body {
   min-height: 100svh;
   font-family: var(--font-outfit), sans-serif;
-  background: linear-gradient(135deg, var(--bg-0) 0%, var(--bg-1) 50%, var(--bg-2) 100%);
+  background: linear-gradient(160deg, #0b0b1a 0%, #14142b 40%, #101a35 70%, #0d1b2a 100%);
   background-attachment: fixed;
   color: var(--ink);
   /* The page reads as an instrument, not a document, so chrome is not selectable —
@@ -68,8 +68,10 @@ body::before {
   position: fixed;
   inset: 0;
   background:
-    radial-gradient(ellipse at 20% 80%, rgb(120 0 255 / 0.15) 0%, transparent 50%),
-    radial-gradient(ellipse at 80% 20%, rgb(0 212 255 / 0.1) 0%, transparent 50%);
+    radial-gradient(ellipse 80% 60% at 15% 15%, rgb(0 180 216 / 0.16) 0%, transparent 60%),
+    radial-gradient(ellipse 70% 70% at 85% 25%, rgb(124 58 237 / 0.22) 0%, transparent 60%),
+    radial-gradient(ellipse 90% 60% at 75% 85%, rgb(236 72 153 / 0.14) 0%, transparent 60%),
+    radial-gradient(ellipse 60% 50% at 20% 80%, rgb(16 185 129 / 0.1) 0%, transparent 60%);
   pointer-events: none;
   z-index: 0;
 }
@@ -146,43 +148,56 @@ body::before {
   margin-bottom: 16px;
 }
 
-.ip {
+.ip,
+button.ip {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  /* Sized from the character count so a full IPv6 address stays on one line while a
+     short IPv4 one still fills the hero. The coefficient leaves room for the page
+     gutters, and the floor is low enough that a 20-character address still fits a
+     375px screen rather than running off the edge. */
   font-family: var(--font-jetbrains), monospace;
-  font-size: clamp(1.5rem, calc(150vw / var(--ip-chars, 15)), 4rem);
+  font-size: clamp(1rem, calc(125vw / var(--ip-chars, 15)), 6rem);
   font-weight: 700;
   line-height: 1.1;
-  background: linear-gradient(90deg, var(--cy), var(--vi), var(--pk));
-  background-size: 200% auto;
-  background-clip: text;
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  animation: drift 3s ease infinite;
+  letter-spacing: -0.02em;
   padding: 8px;
-  overflow-wrap: anywhere;
   user-select: text;
 }
 
-@keyframes drift {
-  0%,
-  100% {
-    background-position: 0% center;
-  }
-  50% {
-    background-position: 100% center;
-  }
+.ip-text,
+.ip-glow {
+  grid-area: 1 / 1;
+  white-space: nowrap;
+}
+
+/* One gradient across the whole address, clipped to the glyphs.
+   Nothing may give this element or its children a painting context of their own — not a
+   per-glyph opacity, not a transform, not a mask. Any of those stops the clipped
+   background compositing and the address renders as nothing, or as a fragment. It is
+   width-dependent, so it looks fine at one address length and breaks at another. The
+   entrance therefore lives on the hero wrapper and on the glow copy, never here. */
+.ip-text {
+  background-image: linear-gradient(100deg, #67e8f9, #a78bfa 45%, #f0abfc 80%);
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+/* The glow is flat colour with no clipping, so it can carry a filter. */
+.ip-glow {
+  color: #a78bfa;
+  filter: blur(28px);
+  opacity: 0.55;
+  pointer-events: none;
 }
 
 button.ip {
   border: 0;
-  background-color: transparent;
+  background: none;
   cursor: pointer;
   transition: transform 120ms;
-  font: inherit;
-  font-family: var(--font-jetbrains), monospace;
-  font-size: clamp(1.5rem, calc(150vw / var(--ip-chars, 15)), 4rem);
-  font-weight: 700;
-  background-image: linear-gradient(90deg, var(--cy), var(--vi), var(--pk));
-  background-size: 200% auto;
 }
 
 button.ip:hover {
@@ -219,12 +234,6 @@ button.ip:active {
   font-size: 0.9rem;
   color: var(--ink-3);
   user-select: text;
-}
-
-.hero-hint {
-  margin-top: 32px;
-  font-size: 0.75rem;
-  color: var(--ink-4);
 }
 
 .scroll-cue {
