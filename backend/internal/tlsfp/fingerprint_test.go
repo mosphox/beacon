@@ -173,6 +173,21 @@ func TestExtensionPermutationOnlyMovesWireOrderForms(t *testing.T) {
 func TestALPNCode(t *testing.T) {
 	cases := map[string]string{
 		"h2": "h2", "http/1.1": "h1", "h3": "h3", "": "00", "spdy/3.1": "s1",
+		// A single character is used as both ends.
+		"x": "xx",
+		// Non-alphanumeric ends fall back to hex: the first hex digit of the
+		// first byte and the last of the last byte. These are the
+		// specification's own worked examples.
+		"\xab":       "ab",
+		" ":          "20",
+		"\xab\xcd":   "ad",
+		" a":         "21",
+		"0\xab":      "3b",
+		"a ":         "60",
+		"01\xab\xcd": "3d",
+		// Printable but not alphanumeric still takes the hex path.
+		"spdy/": "7f",
+		"_grpc": "53",
 	}
 	for in, want := range cases {
 		var protos []string
@@ -188,12 +203,31 @@ func TestALPNCode(t *testing.T) {
 	}
 }
 
-// Without SNI the prefix flips from "d" (domain) to "i" (IP literal).
+// Without the SNI extension the prefix flips from "d" (domain) to "i" (IP
+// literal), and the extension count drops with it.
 func TestNoSNIFlipsIndicator(t *testing.T) {
 	h := curlHello()
 	h.ServerName = ""
-	if got := New(h).JA4; !strings.HasPrefix(got, "t13i") {
+	h.Extensions = []uint16{43, 51, 11, 10, 13, 16} // server_name removed
+
+	got := New(h).JA4
+	if !strings.HasPrefix(got, "t13i") {
 		t.Errorf("ja4 = %q, want the t13i prefix when SNI is absent", got)
+	}
+	if !strings.HasPrefix(got, "t13i4906") {
+		t.Errorf("ja4 = %q, want 06 extensions once server_name is gone", got)
+	}
+}
+
+// The flag keys off the SNI extension being present, not off a hostname being
+// parsed out of it. Go only fills ServerName for a host_name entry, so an SNI
+// extension carrying some other name type leaves it empty — the spec still
+// calls that "d".
+func TestSNIIndicatorFollowsTheExtensionNotTheHostname(t *testing.T) {
+	h := curlHello()
+	h.ServerName = "" // extension still listed
+	if got := New(h).JA4; !strings.HasPrefix(got, "t13d") {
+		t.Errorf("ja4 = %q, want t13d: the SNI extension is present", got)
 	}
 }
 
@@ -219,5 +253,44 @@ func TestEmptyHelloDoesNotPanic(t *testing.T) {
 	}
 	if !strings.Contains(fp.JA4, "000000000000") {
 		t.Errorf("ja4 = %q, want zeroed digests for an empty hello", fp.JA4)
+	}
+}
+
+// A hello large enough to be a memory-retention vector keeps its hashes but
+// stops echoing its own contents back.
+func TestOversizedHelloKeepsHashesAndDropsEchoes(t *testing.T) {
+	h := curlHello()
+	h.CipherSuites = make([]uint16, maxListEntries+1)
+	for i := range h.CipherSuites {
+		h.CipherSuites[i] = uint16(i)
+	}
+
+	fp := New(h)
+	if !fp.Truncated {
+		t.Fatal("Truncated = false for an oversized hello")
+	}
+	if len(fp.JA3Hash) != 32 || len(fp.JA4) < 10 {
+		t.Errorf("hashes lost: ja3=%q ja4=%q", fp.JA3Hash, fp.JA4)
+	}
+	for name, got := range map[string]string{
+		"ja3": fp.JA3, "ja3n": fp.JA3N, "ja4_r": fp.JA4R, "ja4_ro": fp.JA4RO,
+	} {
+		if got != "" {
+			t.Errorf("%s still echoed for an oversized hello (%d chars)", name, len(got))
+		}
+	}
+	if fp.CipherSuites != nil || fp.Extensions != nil {
+		t.Error("decoded lists still retained for an oversized hello")
+	}
+}
+
+// A normal hello is untouched by that limit.
+func TestNormalHelloIsNotTruncated(t *testing.T) {
+	fp := New(curlHello())
+	if fp.Truncated {
+		t.Error("Truncated = true for an ordinary hello")
+	}
+	if fp.JA3 == "" || fp.JA4R == "" {
+		t.Error("ordinary hello lost its unhashed forms")
 	}
 }

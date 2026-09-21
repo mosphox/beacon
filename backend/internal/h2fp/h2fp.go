@@ -33,10 +33,34 @@ const preface = "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n"
 // frameHeaderLen is the fixed 9-byte header on every frame.
 const frameHeaderLen = 9
 
-// maxSniff bounds how much of the stream is buffered while looking for the
-// first request. A client that has not identified itself within this much has
-// given up its chance to be fingerprinted.
-const maxSniff = 1 << 16
+// maxSniff bounds how much unparsed stream is buffered at once.
+//
+// It has to be at least one whole frame, and x/net advertises
+// SETTINGS_MAX_FRAME_SIZE of 1 MiB, so a smaller value would silently drop the
+// fingerprint of a client whose request the server then serves perfectly well.
+// The buffer drains as frames complete, so this is transient rather than
+// retained.
+const maxSniff = (1 << 20) + (1 << 16)
+
+// maxHeaderBlock caps one request's accumulated header block. A client that
+// needs more than this to say hello is not one worth fingerprinting.
+const maxHeaderBlock = 1 << 18
+
+// maxSettings and maxPriorities cap what the fingerprint accumulates across
+// frames.
+//
+// These matter more than they look. maxSniff bounds the frame buffer, but that
+// buffer is drained as frames complete, so it bounds nothing kept here. A peer
+// may send unlimited SETTINGS frames — x/net caps entries per frame, not the
+// number of frames — and each one appended without limit. A client holding a
+// connection open and streaming SETTINGS could grow this for the whole idle
+// timeout. Real clients send one SETTINGS frame of under a dozen entries and a
+// handful of PRIORITY frames, so anything past these is not a client being
+// fingerprinted.
+const (
+	maxSettings   = 256
+	maxPriorities = 256
+)
 
 const (
 	frameData         = 0x0
@@ -82,7 +106,10 @@ func (f *Fingerprint) build() {
 		settings = append(settings, fmt.Sprintf("%d:%d", s.ID, s.Value))
 	}
 
-	window := "0"
+	// Absent renders as "00" — two zeroes, unlike the PRIORITY field's single
+	// "0". The asymmetry is in the original format and other implementations
+	// follow it, so matching it is what keeps hashes comparable.
+	window := "00"
 	if f.WindowUpdate != 0 {
 		window = fmt.Sprintf("%d", f.WindowUpdate)
 	}
@@ -126,14 +153,24 @@ type parser struct {
 	give bool // stop trying: malformed, or too much data without a request
 }
 
+// abandon stops fingerprinting this connection and releases everything held
+// for it. Clearing the accumulated fields matters as much as stopping: without
+// it a flood that trips a limit keeps its megabytes reachable until the
+// connection closes.
+func (p *parser) abandon() {
+	p.give = true
+	p.buf = nil
+	p.headerBlk = nil
+	p.fp = Fingerprint{}
+}
+
 func (p *parser) feed(b []byte) {
 	if p.done || p.give {
 		return
 	}
 	p.buf = append(p.buf, b...)
 	if len(p.buf) > maxSniff {
-		p.give = true
-		p.buf = nil
+		p.abandon()
 		return
 	}
 
@@ -142,8 +179,7 @@ func (p *parser) feed(b []byte) {
 			return
 		}
 		if string(p.buf[:len(preface)]) != preface {
-			p.give = true
-			p.buf = nil
+			p.abandon()
 			return
 		}
 		p.sawPreface = true
@@ -166,8 +202,11 @@ func (p *parser) feed(b []byte) {
 		p.frame(typ, flags, streamID, payload)
 		// frame may have finished the job and released the buffer, so check
 		// before advancing into it.
-		if p.done || p.give {
+		if p.done {
 			p.buf = nil
+			return
+		}
+		if p.give {
 			return
 		}
 		p.buf = p.buf[frameHeaderLen+size:]
@@ -181,6 +220,10 @@ func (p *parser) frame(typ, flags byte, streamID uint32, payload []byte) {
 			return
 		}
 		for len(payload) >= 6 {
+			if len(p.fp.Settings) >= maxSettings {
+				p.abandon()
+				return
+			}
 			p.fp.Settings = append(p.fp.Settings, Setting{
 				ID:    binary.BigEndian.Uint16(payload[0:2]),
 				Value: binary.BigEndian.Uint32(payload[2:6]),
@@ -196,6 +239,10 @@ func (p *parser) frame(typ, flags byte, streamID uint32, payload []byte) {
 
 	case framePriority:
 		if len(payload) >= 5 {
+			if len(p.fp.Priorities) >= maxPriorities {
+				p.abandon()
+				return
+			}
 			p.fp.Priorities = append(p.fp.Priorities, priorityFrom(streamID, payload))
 		}
 
@@ -203,26 +250,29 @@ func (p *parser) frame(typ, flags byte, streamID uint32, payload []byte) {
 		block := payload
 		if flags&flagPadded != 0 {
 			if len(block) < 1 {
-				p.give = true
+				p.abandon()
 				return
 			}
 			pad := int(block[0])
 			block = block[1:]
 			if pad > len(block) {
-				p.give = true
+				p.abandon()
 				return
 			}
 			block = block[:len(block)-pad]
 		}
 		if flags&flagPriority != 0 {
 			if len(block) < 5 {
-				p.give = true
+				p.abandon()
 				return
 			}
-			p.fp.Priorities = append(p.fp.Priorities, priorityFrom(streamID, block))
+			// Skipped, not recorded: the fingerprint's PRIORITY field lists
+			// standalone PRIORITY frames only. Firefox sends six of those and
+			// then a HEADERS frame with this flag set, and counting that one
+			// too would disagree with every published Firefox fingerprint.
 			block = block[5:]
 		}
-		p.headerBlk = append(p.headerBlk, block...)
+		p.appendHeaderBlock(block)
 		p.inHeaders = true
 		if flags&flagEndHeaders != 0 {
 			p.finishHeaders()
@@ -232,15 +282,29 @@ func (p *parser) frame(typ, flags byte, streamID uint32, payload []byte) {
 		if !p.inHeaders {
 			return
 		}
-		p.headerBlk = append(p.headerBlk, payload...)
+		p.appendHeaderBlock(payload)
 		if flags&flagEndHeaders != 0 {
 			p.finishHeaders()
 		}
 
 	case frameData:
 		// A request body before any headers is nonsense; stop looking.
-		p.give = true
+		p.abandon()
 	}
+}
+
+// appendHeaderBlock accumulates a header block across CONTINUATION frames,
+// under its own cap.
+//
+// maxSniff bounds the frame buffer, but that buffer is drained as frames are
+// consumed, so it does not bound this: a client could send CONTINUATION frames
+// forever without ever setting END_HEADERS and grow the block without limit.
+func (p *parser) appendHeaderBlock(b []byte) {
+	if len(p.headerBlk)+len(b) > maxHeaderBlock {
+		p.abandon()
+		return
+	}
+	p.headerBlk = append(p.headerBlk, b...)
 }
 
 func priorityFrom(streamID uint32, b []byte) Priority {
@@ -264,12 +328,25 @@ func (p *parser) finishHeaders() {
 	dec := hpack.NewDecoder(4096, nil)
 	var order []string
 	dec.SetEmitFunc(func(hf hpack.HeaderField) {
-		if strings.HasPrefix(hf.Name, ":") && len(hf.Name) > 1 {
+		if !strings.HasPrefix(hf.Name, ":") || len(hf.Name) < 2 {
+			return
+		}
+		// :protocol is excluded by convention — it collides with :path on its
+		// first letter, and an RFC 8441 extended CONNECT would otherwise emit
+		// a second "p".
+		if hf.Name == ":protocol" {
+			return
+		}
+		// The name is an HPACK literal that nothing has validated yet, so a
+		// hostile one could otherwise put arbitrary bytes into the rendered
+		// fingerprint. Only the defined pseudo-headers contribute.
+		switch hf.Name {
+		case ":method", ":scheme", ":authority", ":path", ":status":
 			order = append(order, hf.Name[1:2])
 		}
 	})
 	if _, err := dec.Write(p.headerBlk); err != nil {
-		p.give = true
+		p.abandon()
 		return
 	}
 

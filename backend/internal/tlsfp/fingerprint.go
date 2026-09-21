@@ -37,6 +37,11 @@ type Fingerprint struct {
 	JA4O  string // wire order, hashed
 	JA4RO string // wire order, unhashed
 
+	// Truncated reports that the hello was too large to echo back in full.
+	// The hashes above are still computed over everything the client sent;
+	// only the unhashed forms and the decoded lists are withheld.
+	Truncated bool
+
 	// The decoded ClientHello, for callers that want to see the parts rather
 	// than a digest.
 	TLSVersion     string
@@ -129,6 +134,11 @@ const (
 // legacyVersion is JA3's first field: the ClientHello's legacy_version, which
 // the standard library does not expose directly.
 //
+// The inference below is exact for anything that can complete a handshake. It
+// would be wrong for a hello whose legacy_version is below TLS 1.0, where the
+// true JA3 value is 768 — but the library rejects those during version
+// negotiation, so no such value ever reaches a response.
+//
 // RFC 8446 §4.1.2 requires it to be 0x0303 for any client sending
 // supported_versions, which is every TLS 1.3-capable client. Without that
 // extension the library derives SupportedVersions from legacy_version, so its
@@ -173,7 +183,7 @@ func versionLabel(v uint16) string {
 		return "10"
 	case 0x0300:
 		return "s3"
-	case 0x0200:
+	case 0x0002:
 		return "s2"
 	default:
 		return "00"
@@ -197,19 +207,47 @@ func versionName(v uint16) string {
 	}
 }
 
+// alphanumeric is the JA4 specification's test for an ALPN byte: 0x30-0x39,
+// 0x41-0x5A or 0x61-0x7A. Deliberately narrower than "printable" — a value
+// like "spdy/" ends in a byte that is printable but not alphanumeric, and the
+// spec renders those as hex.
+func alphanumeric(b byte) bool {
+	return (b >= '0' && b <= '9') || (b >= 'A' && b <= 'Z') || (b >= 'a' && b <= 'z')
+}
+
 // alpnCode is JA4's two-character ALPN field: the first and last character of
 // the first offered protocol, "00" when none was offered.
+//
+// When either end is not alphanumeric the spec substitutes the first hex digit
+// of the first byte and the last hex digit of the last byte, so 0xAB 0xCD
+// becomes "ad".
 func alpnCode(protos []string) string {
 	if len(protos) == 0 || protos[0] == "" {
 		return "00"
 	}
 	p := protos[0]
 	first, last := p[0], p[len(p)-1]
-	// Non-printable values are rendered as hex, per the JA4 specification.
-	if first < 0x21 || first > 0x7e || last < 0x21 || last > 0x7e {
+	if !alphanumeric(first) || !alphanumeric(last) {
 		return fmt.Sprintf("%x%x", first>>4, last&0x0f)
 	}
 	return string([]byte{first, last})
+}
+
+// maxListEntries bounds what is echoed back rather than hashed.
+//
+// crypto/tls accepts a handshake message up to 64 KiB, which is room for tens
+// of thousands of cipher suites. The hashes stay cheap at any size, but the
+// unhashed JA3 and JA4_r forms are proportional to the input and are held for
+// the connection's lifetime, so a hello spent entirely on ciphers would retain
+// roughly ten times its own size. No real client offers more than a couple of
+// hundred of anything.
+const maxListEntries = 512
+
+func oversized(chi *tls.ClientHelloInfo) bool {
+	return len(chi.CipherSuites) > maxListEntries ||
+		len(chi.Extensions) > maxListEntries ||
+		len(chi.SupportedCurves) > maxListEntries ||
+		len(chi.SignatureSchemes) > maxListEntries
 }
 
 func twoDigits(n int) string {
@@ -231,15 +269,19 @@ func New(chi *tls.ClientHelloInfo) *Fingerprint {
 	}
 
 	fp := &Fingerprint{
-		CipherSuites:   chi.CipherSuites,
-		Extensions:     chi.Extensions,
-		SupportedTLS:   chi.SupportedVersions,
-		Curves:         curves,
-		PointFormats:   chi.SupportedPoints,
+		Truncated:    oversized(chi),
+		CipherSuites: chi.CipherSuites,
+		Extensions:   chi.Extensions,
+		SupportedTLS: chi.SupportedVersions,
+		Curves:       curves,
+		// Cloned: this is the one ClientHelloInfo slice that aliases
+		// crypto/tls's reusable handshake buffer rather than a fresh
+		// allocation, and it is retained for the connection's lifetime.
+		PointFormats:   append([]uint8(nil), chi.SupportedPoints...),
 		SignatureAlgos: sigs,
 		ALPN:           chi.SupportedProtos,
 		ServerName:     chi.ServerName,
-		GREASE:         hasGREASE(chi.CipherSuites, chi.Extensions, curves),
+		GREASE:         hasGREASE(chi.CipherSuites, chi.Extensions, curves, sigs, chi.SupportedVersions),
 	}
 	fp.TLSVersion = versionName(negotiableVersion(chi))
 
@@ -250,6 +292,13 @@ func New(chi *tls.ClientHelloInfo) *Fingerprint {
 
 	fp.ja3(chi, ciphers, exts, cleanCurves)
 	fp.ja4(chi, ciphers, exts, cleanSigs)
+
+	// Keep the digests, drop everything whose size tracks the client's input.
+	if fp.Truncated {
+		fp.JA3, fp.JA3N, fp.JA4R, fp.JA4RO = "", "", "", ""
+		fp.CipherSuites, fp.Extensions = nil, nil
+		fp.Curves, fp.SignatureAlgos, fp.SupportedTLS = nil, nil, nil
+	}
 	return fp
 }
 
@@ -289,7 +338,7 @@ func (fp *Fingerprint) ja3(chi *tls.ClientHelloInfo, ciphers, exts, curves []uin
 func (fp *Fingerprint) ja4(chi *tls.ClientHelloInfo, ciphers, exts, sigs []uint16) {
 	prefix := "t" +
 		versionLabel(negotiableVersion(chi)) +
-		map[bool]string{true: "d", false: "i"}[chi.ServerName != ""] +
+		map[bool]string{true: "d", false: "i"}[contains(chi.Extensions, extServerName)] +
 		twoDigits(len(ciphers)) +
 		twoDigits(len(exts)) +
 		alpnCode(chi.SupportedProtos)

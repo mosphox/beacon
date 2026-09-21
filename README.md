@@ -295,7 +295,8 @@ With `TLS_ENABLED=true` the JSON response carries a `tls` block:
     "point_formats": [0], "signature_algorithms": [...],
     "alpn": ["h2", "http/1.1"],
     "server_name": "beacon.example.com",
-    "grease": false
+    "grease": false,
+    "truncated": false
   },
   "negotiated": {
     "version": "TLS 1.3", "cipher_suite": "TLS_AES_128_GCM_SHA256",
@@ -306,6 +307,13 @@ With `TLS_ENABLED=true` the JSON response carries a `tls` block:
 ```
 
 The block is `null` in plain-HTTP mode, and `?v=1` never carries it.
+
+`truncated` is `true` for a ClientHello far larger than any real client sends —
+the hashes still cover everything the client offered, but the decoded lists and
+the unhashed `ja3`/`ja4_r` forms are withheld rather than held in memory for
+the life of the connection. The same reasoning bounds the HTTP/2 side: a client
+that floods SETTINGS or PRIORITY frames is dropped from fingerprinting instead
+of being accumulated.
 
 An HTTP/2 request also carries an `http2` block:
 

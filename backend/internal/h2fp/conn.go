@@ -46,7 +46,12 @@ func (c *Conn) Fingerprint() *Fingerprint {
 	if !c.p.done {
 		return nil
 	}
+	// Copy the slices out: the zero-value struct copy would share backing
+	// arrays with the parser and with every other handler on this connection.
 	fp := c.p.fp
+	fp.Settings = append([]Setting(nil), c.p.fp.Settings...)
+	fp.Priorities = append([]Priority(nil), c.p.fp.Priorities...)
+	fp.PseudoHeaderOrder = append([]string(nil), c.p.fp.PseudoHeaderOrder...)
 	return &fp
 }
 

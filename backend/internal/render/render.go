@@ -349,6 +349,9 @@ type tlsOffered struct {
 	ALPN              []string `json:"alpn"`
 	ServerName        *string  `json:"server_name"`
 	GREASE            bool     `json:"grease"`
+	// Truncated means the hello was too large to echo back. The hashes above
+	// still cover everything the client sent; the decoded lists are withheld.
+	Truncated bool `json:"truncated"`
 }
 
 type tlsNegotiated struct {
@@ -562,6 +565,7 @@ func (resp Response) tlsBlock() *tlsBlock {
 			ALPN:              fp.ALPN,
 			ServerName:        emptyToNull(fp.ServerName),
 			GREASE:            fp.GREASE,
+			Truncated:         fp.Truncated,
 		},
 	}
 	if n := resp.Negotiated; n != nil {
