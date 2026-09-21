@@ -29,13 +29,20 @@ not. That split is the whole typographic system and it should be followed litera
 
 | Role | Family | Size / line-height | Weight | Tracking |
 | --- | --- | --- | --- | --- |
-| IP (hero) | JetBrains Mono | `clamp(1rem, 125vw/chars, 6rem)` / 1.1 | 700 | −0.02em |
-| Hero label | Outfit | 0.875rem / 1.4 | 300 | 0.3em, uppercase |
+| IP (hero) | JetBrains Mono | `--hero-scale` / 1.1 | 700 | −0.02em |
+| Hero label | Outfit | 0.22 × scale, 11–14px | 300 | 0.3em, uppercase |
 | Section heading | Outfit | 1.125rem / 1.3 | 600 | −0.01em |
 | Row label | Outfit | 0.8125rem / 1.4 | 300 | 0 |
 | Row value | JetBrains Mono | 0.875rem / 1.5 | 400 | 0 |
 | Fingerprint | JetBrains Mono | `clamp(0.75rem, 2.2vw, 1rem)` / 1.6 | 400 | 0 |
 | Annotation | Outfit | 0.75rem / 1.4 | 300 | 0 |
+
+The hero is sized from a single value, `--hero-scale`, derived from the address's own
+character count: `clamp(1rem, 125vw/chars, 6rem)`. The label, location and ASN lines are
+fractions of it (0.22, 0.34, 0.26), each bounded so they stay legible on a small screen
+and never overgrow on a large one. This matters because the address shrinks hard for a
+long IPv6 on a narrow screen — at fixed sizes the location line ended up 0.85× the
+address and the hierarchy collapsed. It is now 0.55× at worst and 0.21× on a desktop.
 
 The tracked uppercase label is kept **only** in the hero, where it is part of the existing
 brand. Section headings below the fold are sentence case; repeating the hero's treatment on

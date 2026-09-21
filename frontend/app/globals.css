@@ -124,6 +124,11 @@ body::before {
 
 .hero-inner {
   animation: rise 0.6s ease-out;
+  /* The whole hero is sized from one value, so the supporting lines stay in proportion
+     to the address instead of holding a fixed size while it shrinks. A long IPv6
+     address on a narrow screen drives this right down, and at fixed sizes the location
+     line ended up nearly as large as the address itself. */
+  --hero-scale: clamp(1rem, calc(125vw / var(--ip-chars, 15)), 6rem);
 }
 
 @keyframes rise {
@@ -140,12 +145,14 @@ body::before {
 /* The tracked uppercase label lives here and nowhere else — it is part of the existing
    brand, but repeating it above every section below would be template chrome. */
 .hero-label {
-  font-size: 0.875rem;
+  /* Each supporting line is a fraction of the address, bounded so it never becomes
+     illegible on a small screen or oversized on a large one. */
+  font-size: clamp(0.6875rem, calc(var(--hero-scale) * 0.22), 0.875rem);
   font-weight: 300;
   letter-spacing: 0.3em;
   text-transform: uppercase;
   color: var(--ink-3);
-  margin-bottom: 16px;
+  margin-bottom: clamp(8px, calc(var(--hero-scale) * 0.17), 16px);
 }
 
 .ip,
@@ -160,7 +167,7 @@ button.ip {
      gutters, and the floor is low enough that a 20-character address still fits a
      375px screen rather than running off the edge. */
   font-family: var(--font-jetbrains), monospace;
-  font-size: clamp(1rem, calc(125vw / var(--ip-chars, 15)), 6rem);
+  font-size: var(--hero-scale);
   font-weight: 700;
   line-height: 1.1;
   letter-spacing: -0.02em;
@@ -233,10 +240,10 @@ button.ip {
 }
 
 .hero-location {
-  font-size: 1.25rem;
+  font-size: clamp(0.8125rem, calc(var(--hero-scale) * 0.34), 1.25rem);
   font-weight: 300;
   color: var(--ink-2);
-  margin-top: 8px;
+  margin-top: clamp(4px, calc(var(--hero-scale) * 0.09), 8px);
 }
 
 .hero-location .city {
@@ -253,9 +260,9 @@ button.ip {
 }
 
 .hero-asn {
-  margin-top: 8px;
+  margin-top: clamp(4px, calc(var(--hero-scale) * 0.09), 8px);
   font-family: var(--font-jetbrains), monospace;
-  font-size: 0.9rem;
+  font-size: clamp(0.75rem, calc(var(--hero-scale) * 0.26), 0.9rem);
   color: var(--ink-3);
   user-select: text;
 }

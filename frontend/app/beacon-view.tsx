@@ -139,7 +139,14 @@ export default function BeaconView() {
 
       <main>
         <section className="hero">
-          <div className="hero-inner">
+          <div
+            className="hero-inner"
+            /* Genuinely runtime-computed: the whole hero is sized from the address's
+               character count. */
+            style={
+              data ? ({ '--ip-chars': data.ip.length } as React.CSSProperties) : undefined
+            }
+          >
             <p className="hero-label">{isRoot ? 'Your IP address' : 'IP lookup'}</p>
 
             <h1 className="hero-h1">
@@ -159,9 +166,6 @@ export default function BeaconView() {
                   /* The split glyphs are decorative once the label carries the address;
                      without this some screen readers spell it out character by character. */
                   aria-label={`Copy IP address ${data.ip}`}
-                  /* Genuinely runtime-computed: the type scales to the address length so a
-                     full IPv6 address stays on one line. */
-                  style={{ '--ip-chars': data.ip.length } as React.CSSProperties}
                 >
                   <span className="ip-bracket left" aria-hidden="true">
                     [
