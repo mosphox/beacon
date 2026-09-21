@@ -1,186 +1,627 @@
+/* Tokens are defined in DESIGN.md. Nothing here should introduce a value that is not
+   recorded there. */
+
+:root {
+  --bg-0: #0f0f23;
+  --bg-1: #1a1a2e;
+  --bg-2: #16213e;
+
+  --rule: rgb(255 255 255 / 0.07);
+  --rule-strong: rgb(255 255 255 / 0.12);
+
+  --ink: #e0e0e0;
+  --ink-2: #9ca3af;
+  --ink-3: #6b7280;
+  --ink-4: #4b5563;
+
+  --accent: #a78bfa;
+  --cy: #00d4ff;
+  --vi: #7c3aed;
+  --pk: #f472b6;
+  --ok: #10b981;
+  --warn: #f59e0b;
+
+  --gutter: 16px;
+  --measure: 720px;
+}
+
+@media (min-width: 768px) {
+  :root {
+    --gutter: 24px;
+  }
+}
+
+@media (min-width: 1024px) {
+  :root {
+    --gutter: 32px;
+  }
+}
+
 * {
-    margin: 0;
-    padding: 0;
-    box-sizing: border-box;
-    user-select: none;
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
 }
 
 body {
-    min-height: 100vh;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-family: var(--font-outfit), sans-serif;
-    background: linear-gradient(135deg, #0f0f23 0%, #1a1a2e 50%, #16213e 100%);
-    color: #e0e0e0;
-    overflow: hidden;
+  min-height: 100svh;
+  font-family: var(--font-outfit), sans-serif;
+  background: linear-gradient(135deg, var(--bg-0) 0%, var(--bg-1) 50%, var(--bg-2) 100%);
+  background-attachment: fixed;
+  color: var(--ink);
+  /* The page reads as an instrument, not a document, so chrome is not selectable —
+     but every measured value opts back in. A hash you cannot copy is useless. */
+  user-select: none;
+  -webkit-text-size-adjust: 100%;
+  /* Tap targets are buttons, not links to drag: kill the 300ms double-tap delay and
+     pick the highlight deliberately rather than inheriting the platform blue. */
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: rgb(167 139 250 / 0.2);
 }
 
 body::before {
-    content: '';
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    background:
-        radial-gradient(ellipse at 20% 80%, rgba(120, 0, 255, 0.15) 0%, transparent 50%),
-        radial-gradient(ellipse at 80% 20%, rgba(0, 212, 255, 0.1) 0%, transparent 50%);
-    pointer-events: none;
+  content: '';
+  position: fixed;
+  inset: 0;
+  background:
+    radial-gradient(ellipse at 20% 80%, rgb(120 0 255 / 0.15) 0%, transparent 50%),
+    radial-gradient(ellipse at 80% 20%, rgb(0 212 255 / 0.1) 0%, transparent 50%);
+  pointer-events: none;
+  z-index: 0;
 }
 
-.container {
-    text-align: center;
-    z-index: 1;
-    animation: fadeIn 0.6s ease-out;
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+  border-radius: 2px;
 }
 
-@keyframes fadeIn {
-    from {
-        opacity: 0;
-        transform: translateY(20px);
-    }
-    to {
-        opacity: 1;
-        transform: translateY(0);
-    }
+/* ----------------------------------------------------------------- hero */
+
+.hero {
+  position: relative;
+  z-index: 1;
+  min-height: 100svh;
+  display: grid;
+  place-items: center;
+  padding: 48px max(var(--gutter), env(safe-area-inset-left)) 48px
+    max(var(--gutter), env(safe-area-inset-right));
+  text-align: center;
 }
 
-.label {
-    font-size: 0.875rem;
-    text-transform: uppercase;
-    letter-spacing: 0.3em;
-    color: #6b7280;
-    margin-bottom: 1rem;
-    font-weight: 300;
+/* The address is the page's heading; the h1 carries no style of its own. */
+.hero-h1 {
+  font-size: inherit;
+  font-weight: inherit;
+  line-height: inherit;
+}
+
+/* Reachable by keyboard, out of the way otherwise — the readout is a full screen down. */
+.skip {
+  position: absolute;
+  left: -9999px;
+  top: 8px;
+  z-index: 1001;
+  padding: 8px 16px;
+  border-radius: 4px;
+  background: var(--bg-1);
+  border: 1px solid var(--accent);
+  color: var(--ink);
+  font-size: 0.875rem;
+  text-decoration: none;
+}
+
+.skip:focus-visible {
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.hero-inner {
+  animation: rise 0.6s ease-out;
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* The tracked uppercase label lives here and nowhere else — it is part of the existing
+   brand, but repeating it above every section below would be template chrome. */
+.hero-label {
+  font-size: 0.875rem;
+  font-weight: 300;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  margin-bottom: 16px;
 }
 
 .ip {
-    font-family: var(--font-jetbrains), monospace;
-    font-size: clamp(2rem, 8vw, 4rem);
-    font-weight: 700;
-    background: linear-gradient(90deg, #00d4ff, #7c3aed, #f472b6);
-    background-size: 200% auto;
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
-    animation: gradient 3s ease infinite;
-    margin-bottom: 1.5rem;
-    padding: 0.5rem;
-    cursor: pointer;
-    transition: transform 0.2s;
+  font-family: var(--font-jetbrains), monospace;
+  font-size: clamp(1.5rem, calc(150vw / var(--ip-chars, 15)), 4rem);
+  font-weight: 700;
+  line-height: 1.1;
+  background: linear-gradient(90deg, var(--cy), var(--vi), var(--pk));
+  background-size: 200% auto;
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: drift 3s ease infinite;
+  padding: 8px;
+  overflow-wrap: anywhere;
+  user-select: text;
 }
 
-@keyframes gradient {
-    0%, 100% { background-position: 0% center; }
-    50% { background-position: 100% center; }
+@keyframes drift {
+  0%,
+  100% {
+    background-position: 0% center;
+  }
+  50% {
+    background-position: 100% center;
+  }
 }
 
-.ip:hover {
-    transform: scale(1.02);
+button.ip {
+  border: 0;
+  background-color: transparent;
+  cursor: pointer;
+  transition: transform 120ms;
+  font: inherit;
+  font-family: var(--font-jetbrains), monospace;
+  font-size: clamp(1.5rem, calc(150vw / var(--ip-chars, 15)), 4rem);
+  font-weight: 700;
+  background-image: linear-gradient(90deg, var(--cy), var(--vi), var(--pk));
+  background-size: 200% auto;
 }
 
-.ip:active {
-    transform: scale(0.98);
+button.ip:hover {
+  transform: scale(1.02);
 }
 
-.ip.static {
-    cursor: default;
+button.ip:active {
+  transform: scale(0.98);
 }
 
-.ip.static:hover,
-.ip.static:active {
-    transform: none;
+.hero-location {
+  font-size: 1.25rem;
+  font-weight: 300;
+  color: var(--ink-2);
+  margin-top: 8px;
 }
 
-.location {
-    font-size: 1.25rem;
-    color: #9ca3af;
-    font-weight: 300;
+.hero-location .city {
+  color: var(--ink);
 }
 
-.location.unknown {
-    font-style: italic;
-    color: #6b7280;
+.hero-location .country {
+  color: var(--accent);
 }
 
-.location .city {
-    color: #e0e0e0;
+.hero-location.unknown {
+  font-style: italic;
+  color: var(--ink-3);
 }
 
-.location .country {
-    color: #a78bfa;
+.hero-asn {
+  margin-top: 8px;
+  font-family: var(--font-jetbrains), monospace;
+  font-size: 0.9rem;
+  color: var(--ink-3);
+  user-select: text;
 }
 
-.asn {
-    margin-top: 0.5rem;
-    font-family: var(--font-jetbrains), monospace;
-    font-size: 0.9rem;
-    color: #6b7280;
-    font-weight: 400;
+.hero-hint {
+  margin-top: 32px;
+  font-size: 0.75rem;
+  color: var(--ink-4);
 }
 
-.copy-hint {
-    margin-top: 2rem;
-    font-size: 0.75rem;
-    color: #4b5563;
-    opacity: 0;
-    transition: opacity 0.3s;
+.scroll-cue {
+  position: absolute;
+  bottom: calc(24px + env(safe-area-inset-bottom));
+  left: 50%;
+  transform: translateX(-50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.75rem;
+  color: var(--ink-3);
+  background: none;
+  border: 0;
+  cursor: pointer;
+  padding: 8px 12px;
+  font-family: inherit;
 }
 
-.ip:hover ~ .copy-hint {
-    opacity: 1;
+.scroll-cue:hover {
+  color: var(--ink-2);
+}
+
+.scroll-cue svg {
+  display: block;
+}
+
+/* ------------------------------------------------------------- readout */
+
+.readout {
+  position: relative;
+  z-index: 1;
+  max-width: var(--measure);
+  margin: 0 auto;
+  padding: 0 var(--gutter) 96px;
+}
+
+.section + .section {
+  margin-top: 48px;
+}
+
+@media (min-width: 768px) {
+  .section + .section {
+    margin-top: 64px;
+  }
+}
+
+.section-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--rule-strong);
+}
+
+.section-head h2 {
+  font-size: 1.125rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+  text-wrap: balance;
+  scroll-margin-top: 24px;
+}
+
+.section-note {
+  font-size: 0.75rem;
+  font-weight: 300;
+  color: var(--ink-3);
+}
+
+.section-note.agree {
+  color: var(--ok);
+}
+
+.section-note.differ {
+  color: var(--warn);
+}
+
+.section-intro {
+  margin-top: 12px;
+  font-size: 0.875rem;
+  font-weight: 300;
+  line-height: 1.6;
+  color: var(--ink-2);
+  max-width: 68ch;
+}
+
+/* Rows are a table, not cards: a quiet label column against a hairline, and the value. */
+.rows {
+  margin-top: 8px;
+}
+
+.row {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 2px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--rule);
+}
+
+@media (min-width: 640px) {
+  .row {
+    grid-template-columns: 180px 1fr;
+    gap: 24px;
+    align-items: baseline;
+  }
+}
+
+.row dt {
+  font-size: 0.8125rem;
+  font-weight: 300;
+  color: var(--ink-3);
+}
+
+@media (min-width: 640px) {
+  .row dt {
+    text-align: right;
+  }
+}
+
+.row dd {
+  font-family: var(--font-jetbrains), monospace;
+  font-size: 0.875rem;
+  line-height: 1.5;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
+.row dd.absent {
+  font-family: var(--font-outfit), sans-serif;
+  font-style: italic;
+  color: var(--ink-4);
+  user-select: none;
+}
+
+.row dd .unit {
+  color: var(--ink-3);
+}
+
+.badge {
+  display: inline-block;
+  font-family: var(--font-outfit), sans-serif;
+  font-size: 0.6875rem;
+  padding: 2px 8px;
+  border-radius: 4px;
+  border: 1px solid var(--rule-strong);
+  color: var(--ink-2);
+  margin-right: 6px;
+}
+
+.badge.on {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+}
+
+/* --------------------------------------------------------- source claims */
+
+.claim {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 4px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--rule);
+}
+
+@media (min-width: 640px) {
+  .claim {
+    grid-template-columns: 180px 1fr;
+    gap: 24px;
+    align-items: baseline;
+  }
+}
+
+.claim-source {
+  font-size: 0.8125rem;
+  font-weight: 300;
+  color: var(--ink-3);
+}
+
+@media (min-width: 640px) {
+  .claim-source {
+    text-align: right;
+  }
+}
+
+.claim-source.differs {
+  color: var(--warn);
+}
+
+.claim-value {
+  font-family: var(--font-jetbrains), monospace;
+  font-size: 0.875rem;
+  color: var(--ink);
+  user-select: text;
+}
+
+/* Block, not inline: the coordinates would otherwise wrap mid-value on a narrow
+   screen and read as part of the place name. */
+.claim-meta {
+  display: block;
+  margin-top: 2px;
+  font-family: var(--font-jetbrains), monospace;
+  font-size: 0.75rem;
+  color: var(--ink-3);
+  user-select: text;
+}
+
+/* ---------------------------------------------------------- fingerprint */
+
+/* The one place boldness is spent: a JA4 string is structured, so the structure shows. */
+.fp {
+  margin-top: 16px;
+  padding: 16px;
+  border: 1px solid var(--rule-strong);
+  border-radius: 4px;
+  background: rgb(0 0 0 / 0.2);
+}
+
+.fp-name {
+  font-size: 0.75rem;
+  font-weight: 300;
+  color: var(--ink-3);
+  margin-bottom: 8px;
+}
+
+.fp-string {
+  font-family: var(--font-jetbrains), monospace;
+  font-size: clamp(0.75rem, 2.2vw, 1rem);
+  line-height: 1.6;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px;
+  user-select: text;
+}
+
+.fp-seg {
+  color: var(--ink);
+}
+
+.fp-seg.prefix {
+  color: var(--accent);
+}
+
+.fp-sep {
+  color: var(--ink-4);
+}
+
+.fp-parts {
+  margin-top: 12px;
+  display: grid;
+  gap: 6px;
+  grid-template-columns: 1fr;
+}
+
+@media (min-width: 640px) {
+  .fp-parts {
+    grid-template-columns: auto 1fr;
+    gap: 6px 16px;
+  }
+}
+
+.fp-parts dt {
+  font-family: var(--font-jetbrains), monospace;
+  font-size: 0.8125rem;
+  color: var(--accent);
+  user-select: text;
+}
+
+.fp-parts dd {
+  font-size: 0.75rem;
+  font-weight: 300;
+  color: var(--ink-2);
+  line-height: 1.5;
+}
+
+/* ------------------------------------------------------------- chiplist */
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  user-select: text;
+}
+
+.chip {
+  font-family: var(--font-jetbrains), monospace;
+  font-size: 0.75rem;
+  color: var(--ink-2);
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  padding: 2px 6px;
+}
+
+.more {
+  background: none;
+  border: 1px dashed var(--rule-strong);
+  border-radius: 4px;
+  color: var(--ink-3);
+  font-family: var(--font-outfit), sans-serif;
+  font-size: 0.75rem;
+  padding: 2px 8px;
+  cursor: pointer;
+}
+
+.more:hover {
+  color: var(--ink-2);
+}
+
+/* ---------------------------------------------------------------- misc */
+
+.note {
+  margin-top: 16px;
+  font-size: 0.8125rem;
+  font-weight: 300;
+  line-height: 1.6;
+  color: var(--ink-3);
+  max-width: 68ch;
+}
+
+.state {
+  position: relative;
+  z-index: 1;
+  min-height: 100svh;
+  display: grid;
+  place-items: center;
+  padding: var(--gutter);
+  text-align: center;
+}
+
+.state p {
+  color: var(--ink-2);
+  font-weight: 300;
+  margin-bottom: 16px;
+}
+
+.retry {
+  font: inherit;
+  font-size: 0.875rem;
+  color: var(--ink);
+  background: none;
+  border: 1px solid var(--rule-strong);
+  border-radius: 4px;
+  padding: 8px 16px;
+  cursor: pointer;
+}
+
+.retry:hover {
+  border-color: var(--accent);
 }
 
 .copied {
-    position: fixed;
-    top: 2rem;
-    left: 50%;
-    transform: translateX(-50%);
-    background: rgba(16, 185, 129, 0.15);
-    backdrop-filter: blur(12px) saturate(180%);
-    -webkit-backdrop-filter: blur(12px) saturate(180%);
-    color: #e0e0e0;
-    padding: 0.75rem 1.5rem;
-    border-radius: 2rem;
-    border: 1px solid rgba(255, 255, 255, 0.15);
-    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.15);
-    font-size: 0.875rem;
-    font-weight: 500;
+  position: fixed;
+  top: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgb(16 185 129 / 0.15);
+  backdrop-filter: blur(12px) saturate(180%);
+  -webkit-backdrop-filter: blur(12px) saturate(180%);
+  color: var(--ink);
+  padding: 12px 24px;
+  border-radius: 2rem;
+  border: 1px solid rgb(255 255 255 / 0.15);
+  box-shadow: 0 4px 24px rgb(0 0 0 / 0.15);
+  font-size: 0.875rem;
+  z-index: 1000;
+  animation: toast 2.2s ease-in-out forwards;
+}
+
+@keyframes toast {
+  0% {
     opacity: 0;
-    pointer-events: none;
-    z-index: 1000;
-}
-
-.copied.show {
+  }
+  10%,
+  90% {
     opacity: 1;
-    animation: fadeInOut 2s ease-in-out forwards;
-}
-
-@keyframes fadeInOut {
-    0% {
-        opacity: 0;
-    }
-    10% {
-        opacity: 1;
-    }
-    90% {
-        opacity: 1;
-    }
-    100% {
-        opacity: 0;
-    }
+  }
+  100% {
+    opacity: 0;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
-    *,
-    *::before,
-    *::after {
-        animation: none !important;
-        transition: none !important;
-    }
+  html {
+    scroll-behavior: auto;
+  }
 
-    .copied.show {
-        opacity: 1;
-    }
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+
+  .copied {
+    opacity: 1;
+  }
 }

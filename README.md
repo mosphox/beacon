@@ -51,7 +51,7 @@ Three containers, defined in `docker-compose.yaml`:
 | Container            | Image         | Role                                                              |
 | -------------------- | ------------- | ----------------------------------------------------------------- |
 | `beacon-backend`     | Go 1.25       | Entry point. IP detection, GeoIP lookups, routing, refresh loop.  |
-| `beacon-frontend`    | Next.js 14    | The web page (App Router, standalone output). Internal `3000`.    |
+| `beacon-frontend`    | Next.js 16    | The web page (App Router, standalone output). Internal `3000`.    |
 | `beacon-init-volume` | `alpine:3.21` | One-shot: fixes ownership/permissions on the data volume.         |
 
 Only the backend is published to the host: `${HOST}:${PORT}` maps to the
@@ -501,11 +501,16 @@ backend/                  Go service
   internal/h2fp           Akamai HTTP/2 fingerprint, frame capture
   internal/tlsfp          JA3/JA4 fingerprints, ClientHello capture
   internal/tlsserve       ACME DNS-01 certificates, TLS + PROXY listener
-frontend/                 Next.js 14 app (App Router, standalone output)
-  app/page.jsx            "/" route
-  app/[ip]/page.jsx       "/{ip}" route
-  app/ip-view.jsx         client component: fetch, copy-to-clipboard, UI
-  app/layout.jsx          fonts, metadata
+frontend/                 Next.js 16 app (App Router, TypeScript, standalone output)
+  DESIGN.md               the design system; read before changing any UI
+  CLAUDE.md               stack, rules, why the fetch is client-side
+  app/page.tsx            "/" route
+  app/[ip]/page.tsx       "/{ip}" route
+  app/beacon-view.tsx     client component: fetch, hero, the scrolled readout
+  app/components/         rows, and the fingerprint breakdowns
+  app/api/mock/           development fixture API (404s unless explicitly enabled)
+  proxy.ts                development content negotiation, mirroring the backend
+  lib/types.ts            the v2 response, nullability included
 docker-compose.yaml       the three-container stack
 .github/workflows         SSH deploy
 ```
