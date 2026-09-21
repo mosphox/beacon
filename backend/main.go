@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -25,6 +26,7 @@ import (
 	"beacon/internal/geoip"
 	"beacon/internal/rdns"
 	"beacon/internal/render"
+	"beacon/internal/tlsfp"
 	"beacon/internal/tlsserve"
 )
 
@@ -206,8 +208,18 @@ func acmeCA(v string) string {
 
 func newHTTPServer(addr string, h http.Handler) *http.Server {
 	return &http.Server{
-		Addr:              addr,
-		Handler:           h,
+		Addr:    addr,
+		Handler: h,
+		// Park the connection on the request context so a handler can reach
+		// the ClientHello recorded during its handshake. The fingerprint is
+		// not available yet here — the handshake has not run — so the
+		// connection itself is what gets stored.
+		ConnContext: func(ctx context.Context, c net.Conn) context.Context {
+			if fc := tlsfp.ConnFromNet(c); fc != nil {
+				return tlsfp.NewContext(ctx, fc)
+			}
+			return ctx
+		},
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      15 * time.Second,
@@ -316,7 +328,66 @@ func (s *server) serveLookup(w http.ResponseWriter, r *http.Request, ip string) 
 		hostname = s.rdns.Lookup(r.Context(), ip)
 	}
 
-	render.New(ip, hostname, s.geo.LookupAll(ip)).Write(w, asJSON, version)
+	resp := render.New(ip, hostname, s.geo.LookupAll(ip))
+	if asJSON && version != 1 {
+		resp = resp.WithTLS(tlsfp.FromContext(r.Context()), negotiatedTLS(r))
+	}
+	resp.Write(w, asJSON, version)
+}
+
+// negotiatedTLS reports what the handshake settled on, as opposed to what the
+// client offered. Nil for a plain HTTP request.
+func negotiatedTLS(r *http.Request) *render.NegotiatedTLS {
+	cs := r.TLS
+	if cs == nil {
+		return nil
+	}
+	n := &render.NegotiatedTLS{
+		Version:     tlsVersionName(cs.Version),
+		CipherSuite: tls.CipherSuiteName(cs.CipherSuite),
+		ALPN:        cs.NegotiatedProtocol,
+		ServerName:  cs.ServerName,
+		Resumed:     cs.DidResume,
+		ECHAccepted: cs.ECHAccepted,
+	}
+	if cs.CurveID != 0 {
+		n.CurveID = curveName(cs.CurveID)
+	}
+	return n
+}
+
+func tlsVersionName(v uint16) string {
+	switch v {
+	case tls.VersionTLS13:
+		return "TLS 1.3"
+	case tls.VersionTLS12:
+		return "TLS 1.2"
+	case tls.VersionTLS11:
+		return "TLS 1.1"
+	case tls.VersionTLS10:
+		return "TLS 1.0"
+	default:
+		return fmt.Sprintf("0x%04x", v)
+	}
+}
+
+// curveName covers the groups Go will actually negotiate; anything else is
+// reported by number rather than guessed at.
+func curveName(id tls.CurveID) string {
+	switch id {
+	case tls.CurveP256:
+		return "secp256r1"
+	case tls.CurveP384:
+		return "secp384r1"
+	case tls.CurveP521:
+		return "secp521r1"
+	case tls.X25519:
+		return "x25519"
+	case tls.X25519MLKEM768:
+		return "X25519MLKEM768"
+	default:
+		return fmt.Sprintf("0x%04x", uint16(id))
+	}
 }
 
 // negotiate decides between JSON and plain text, and which schema version.

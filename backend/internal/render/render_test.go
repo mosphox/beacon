@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"beacon/internal/geoip"
+	"beacon/internal/tlsfp"
 )
 
 func full() geoip.Record {
@@ -361,5 +362,74 @@ func TestV1IsCompactV2IsIndented(t *testing.T) {
 	}
 	if !strings.Contains(string(v2), "\n") {
 		t.Error("v2 body is not indented")
+	}
+}
+
+// The TLS block is absent for a request beacon did not terminate itself —
+// behind a TLS-terminating proxy the ClientHello is gone.
+func TestTLSBlockAbsentWithoutTLS(t *testing.T) {
+	m := decode(t, New("8.8.8.8", "", one("MaxMind", full())), SchemaVersion)
+	if m["tls"] != nil {
+		t.Errorf("tls = %v, want null for a plain HTTP request", m["tls"])
+	}
+}
+
+func TestTLSBlockPresentWithFingerprint(t *testing.T) {
+	fp := &tlsfp.Fingerprint{
+		JA3: "771,4867,43,29,0", JA3Hash: "375c6162a492dfbf2795909110ce8424",
+		JA3N: "771,4867,43,29,0", JA3NHash: "90a369ebd76665d3296677774ee22ea2",
+		JA4:  "t13d4907h2_0d8feac7bc37_7395dae3b2f3",
+		JA4R: "t13d4907h2_0004_000a", JA4O: "t13d4907h2_x_y", JA4RO: "t13d4907h2_a_b",
+		TLSVersion:   "TLS 1.3",
+		CipherSuites: []uint16{0x1303, 0x1302},
+		Extensions:   []uint16{0x002b, 0x0000},
+		Curves:       []uint16{29},
+		ALPN:         []string{"h2"},
+		ServerName:   "beacon.example.com",
+		GREASE:       true,
+	}
+	resp := New("8.8.8.8", "", one("MaxMind", full())).
+		WithTLS(fp, &NegotiatedTLS{
+			Version: "TLS 1.3", CipherSuite: "TLS_AES_128_GCM_SHA256",
+			CurveID: "x25519", ALPN: "h2",
+		})
+
+	m := decode(t, resp, SchemaVersion)
+	tlsBlk, ok := m["tls"].(map[string]any)
+	if !ok {
+		t.Fatalf("tls = %v, want an object", m["tls"])
+	}
+	for k, want := range map[string]any{
+		"ja3_hash": "375c6162a492dfbf2795909110ce8424",
+		"ja4":      "t13d4907h2_0d8feac7bc37_7395dae3b2f3",
+	} {
+		if tlsBlk[k] != want {
+			t.Errorf("tls[%q] = %v, want %v", k, tlsBlk[k], want)
+		}
+	}
+
+	hello := tlsBlk["client_hello"].(map[string]any)
+	if hello["grease"] != true || hello["server_name"] != "beacon.example.com" {
+		t.Errorf("client_hello = %v", hello)
+	}
+	if got := hello["cipher_suites"].([]any); len(got) != 2 || got[0] != "0x1303" {
+		t.Errorf("cipher_suites = %v, want hex strings", got)
+	}
+	neg := tlsBlk["negotiated"].(map[string]any)
+	if neg["key_exchange"] != "x25519" || neg["alpn"] != "h2" {
+		t.Errorf("negotiated = %v", neg)
+	}
+}
+
+// v1 is frozen and must not grow a TLS block.
+func TestV1HasNoTLSBlock(t *testing.T) {
+	resp := New("8.8.8.8", "", one("MaxMind", full())).
+		WithTLS(&tlsfp.Fingerprint{JA3Hash: "x"}, nil)
+	m := decode(t, resp, 1)
+	if _, ok := m["tls"]; ok {
+		t.Error("v1 grew a tls key")
+	}
+	if len(m) != 5 {
+		t.Errorf("v1 has %d keys, want 5", len(m))
 	}
 }

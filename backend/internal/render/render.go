@@ -3,6 +3,7 @@ package render
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net"
 	"net/http"
 	"strconv"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"beacon/internal/geoip"
+	"beacon/internal/tlsfp"
 )
 
 // SchemaVersion is the shape returned when no explicit version is requested.
@@ -21,10 +23,34 @@ type Response struct {
 	IP       string
 	Hostname string
 	Answers  []geoip.Answer
+
+	// TLS is nil unless the request arrived over a connection beacon
+	// terminated itself. Behind a TLS-terminating proxy the ClientHello is
+	// consumed upstream and cannot be recovered.
+	TLS        *tlsfp.Fingerprint
+	Negotiated *NegotiatedTLS
+}
+
+// NegotiatedTLS is what the two sides actually settled on, as opposed to what
+// the client offered.
+type NegotiatedTLS struct {
+	Version     string
+	CipherSuite string
+	CurveID     string
+	ALPN        string
+	ServerName  string
+	Resumed     bool
+	ECHAccepted bool
 }
 
 func New(ip, hostname string, answers []geoip.Answer) Response {
 	return Response{IP: ip, Hostname: hostname, Answers: answers}
+}
+
+// WithTLS attaches the fingerprint and negotiated parameters for this request.
+func (resp Response) WithTLS(fp *tlsfp.Fingerprint, n *NegotiatedTLS) Response {
+	resp.TLS, resp.Negotiated = fp, n
+	return resp
 }
 
 // primary merges the sources field by field, taking each value from the first
@@ -302,6 +328,43 @@ type sourceEntry struct {
 	Flags    recordFlags `json:"flags"`
 }
 
+type tlsOffered struct {
+	Version           string   `json:"version"`
+	CipherSuites      []string `json:"cipher_suites"`
+	Extensions        []string `json:"extensions"`
+	SupportedVersions []string `json:"supported_versions"`
+	SupportedGroups   []string `json:"supported_groups"`
+	PointFormats      []uint8  `json:"point_formats"`
+	SignatureAlgos    []string `json:"signature_algorithms"`
+	ALPN              []string `json:"alpn"`
+	ServerName        *string  `json:"server_name"`
+	GREASE            bool     `json:"grease"`
+}
+
+type tlsNegotiated struct {
+	Version     string  `json:"version"`
+	CipherSuite string  `json:"cipher_suite"`
+	KeyExchange *string `json:"key_exchange"`
+	ALPN        *string `json:"alpn"`
+	Resumed     bool    `json:"resumed"`
+	ECHAccepted bool    `json:"ech_accepted"`
+}
+
+type tlsBlock struct {
+	JA3      string `json:"ja3"`
+	JA3Hash  string `json:"ja3_hash"`
+	JA3N     string `json:"ja3n"`
+	JA3NHash string `json:"ja3n_hash"`
+
+	JA4   string `json:"ja4"`
+	JA4R  string `json:"ja4_r"`
+	JA4O  string `json:"ja4_o"`
+	JA4RO string `json:"ja4_ro"`
+
+	Offered    tlsOffered     `json:"client_hello"`
+	Negotiated *tlsNegotiated `json:"negotiated"`
+}
+
 type payloadV2 struct {
 	Version  int     `json:"version"`
 	IP       string  `json:"ip"`
@@ -316,6 +379,9 @@ type payloadV2 struct {
 
 	SourcesAgree bool          `json:"sources_agree"`
 	Sources      []sourceEntry `json:"sources"`
+
+	// Null unless beacon terminated this connection's TLS itself.
+	TLS *tlsBlock `json:"tls"`
 }
 
 type payloadV1 struct {
@@ -421,6 +487,7 @@ func (resp Response) v2() payloadV2 {
 	}
 
 	return payloadV2{
+		TLS:          resp.tlsBlock(),
 		Version:      SchemaVersion,
 		IP:           resp.IP,
 		Family:       emptyToNull(family(resp.IP)),
@@ -431,6 +498,48 @@ func (resp Response) v2() payloadV2 {
 		SourcesAgree: resp.Agree(),
 		Sources:      sources,
 	}
+}
+
+func hexList(vals []uint16) []string {
+	out := make([]string, 0, len(vals))
+	for _, v := range vals {
+		out = append(out, fmt.Sprintf("0x%04x", v))
+	}
+	return out
+}
+
+func (resp Response) tlsBlock() *tlsBlock {
+	fp := resp.TLS
+	if fp == nil {
+		return nil
+	}
+	b := &tlsBlock{
+		JA3: fp.JA3, JA3Hash: fp.JA3Hash, JA3N: fp.JA3N, JA3NHash: fp.JA3NHash,
+		JA4: fp.JA4, JA4R: fp.JA4R, JA4O: fp.JA4O, JA4RO: fp.JA4RO,
+		Offered: tlsOffered{
+			Version:           fp.TLSVersion,
+			CipherSuites:      hexList(fp.CipherSuites),
+			Extensions:        hexList(fp.Extensions),
+			SupportedVersions: hexList(fp.SupportedTLS),
+			SupportedGroups:   hexList(fp.Curves),
+			PointFormats:      fp.PointFormats,
+			SignatureAlgos:    hexList(fp.SignatureAlgos),
+			ALPN:              fp.ALPN,
+			ServerName:        emptyToNull(fp.ServerName),
+			GREASE:            fp.GREASE,
+		},
+	}
+	if n := resp.Negotiated; n != nil {
+		b.Negotiated = &tlsNegotiated{
+			Version:     n.Version,
+			CipherSuite: n.CipherSuite,
+			KeyExchange: emptyToNull(n.CurveID),
+			ALPN:        emptyToNull(n.ALPN),
+			Resumed:     n.Resumed,
+			ECHAccepted: n.ECHAccepted,
+		}
+	}
+	return b
 }
 
 func (resp Response) v1() payloadV1 {

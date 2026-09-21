@@ -25,6 +25,9 @@ chosen automatically from the request's `User-Agent` and `Accept` headers.
 - **Own TLS, optionally.** beacon can terminate TLS itself, obtaining and
   renewing certificates in-process over the ACME DNS-01 challenge, with no
   cron job and no second process.
+- **TLS client fingerprints.** When beacon terminates TLS it reports JA3, JA3N
+  and the four JA4 variants, plus the decoded ClientHello — computed from the
+  standard library alone, with no third-party TLS stack.
 - **Arbitrary lookups.** `GET /` returns the caller's IP; `GET /{ip}` looks up
   any address.
 - **Self-maintaining GeoIP data.** Databases are downloaded on first start and
@@ -269,6 +272,62 @@ cached — including failures. Over the cap a lookup is skipped rather than
 queued, and `hostname` comes back `null`. Set `RDNS_ENABLED=false` to turn it
 off entirely.
 
+## TLS fingerprints
+
+With `TLS_ENABLED=true` the JSON response carries a `tls` block:
+
+```json
+"tls": {
+  "ja3": "771,4867-4866-...,43-51-0-11-10-13-16,29-23-24-25,0",
+  "ja3_hash": "375c6162a492dfbf2795909110ce8424",
+  "ja3n": "...", "ja3n_hash": "90a369ebd76665d3296677774ee22ea2",
+  "ja4":    "t13d4907h2_0d8feac7bc37_7395dae3b2f3",
+  "ja4_r":  "t13d4907h2_0004,0005,...,ff85_000a,000b,000d,002b,0033_0806,...",
+  "ja4_o":  "t13d4907h2_2677ac475d6b_c6f9150fbe3b",
+  "ja4_ro": "t13d4907h2_1303,1302,...,00ff_002b,0033,0000,...,0010_0806,...",
+  "client_hello": {
+    "version": "TLS 1.3",
+    "cipher_suites": ["0x1303", "0x1302", ...],
+    "extensions": ["0x002b", "0x0033", ...],
+    "supported_versions": [...], "supported_groups": [...],
+    "point_formats": [0], "signature_algorithms": [...],
+    "alpn": ["h2", "http/1.1"],
+    "server_name": "beacon.example.com",
+    "grease": false
+  },
+  "negotiated": {
+    "version": "TLS 1.3", "cipher_suite": "TLS_AES_128_GCM_SHA256",
+    "key_exchange": "X25519MLKEM768", "alpn": "h2",
+    "resumed": false, "ech_accepted": false
+  }
+}
+```
+
+The block is `null` in plain-HTTP mode, and `?v=1` never carries it.
+
+`ja3` and `ja4` use the client's wire order; `ja3n` and `ja4` sort what they
+hash, which is what makes them survive Chrome's per-connection extension
+permutation. `ja4_o` and `ja4_ro` keep the wire order on purpose, so the two
+forms together show whether a client permutes. GREASE values (RFC 8701) are
+excluded from every fingerprint — they are random per connection — but their
+presence is reported as `client_hello.grease`.
+
+It all comes from `tls.ClientHelloInfo`, which the standard library fills with
+the cipher suites, the extension IDs **in wire order**, the supported groups,
+the signature algorithms and the offered ALPN protocols exactly as sent. No
+third-party TLS stack and no raw ClientHello capture is involved.
+
+JA3 is Salesforce's and JA4 is FoxIO's, BSD-3-Clause licensed. The rest of the
+JA4+ suite is under a non-commercial licence that is incompatible with this
+project's AGPL-3.0, so none of it is implemented here.
+
+### Why this needs beacon to own the TLS endpoint
+
+Fingerprints are computed from the ClientHello, which a TLS-terminating proxy
+consumes and discards. No header recovers it downstream. That is why the `tls`
+block is absent unless `TLS_ENABLED=true`, and why the documented Caddy setup
+passes the connection through rather than terminating it.
+
 ## Health
 
 `GET /healthz` returns `{"status":"ok","sources":[...]}` once the service is
@@ -398,6 +457,7 @@ backend/                  Go service
   internal/geoip          providers, registry, refresh loop, mmdb lookups
   internal/rdns           bounded, cached reverse-DNS lookups
   internal/render         JSON (v1/v2) / plain-text response shaping
+  internal/tlsfp          JA3/JA4 fingerprints, ClientHello capture
   internal/tlsserve       ACME DNS-01 certificates, TLS + PROXY listener
 frontend/                 Next.js 14 app (App Router, standalone output)
   app/page.jsx            "/" route

@@ -19,6 +19,8 @@ import (
 	"github.com/caddyserver/certmagic"
 	"github.com/libdns/cloudflare"
 	proxyproto "github.com/pires/go-proxyproto"
+
+	"beacon/internal/tlsfp"
 )
 
 // LetsEncryptStaging is worth using while testing: production has rate limits
@@ -86,7 +88,9 @@ func Config(ctx context.Context, opts Options) (*tls.Config, error) {
 	// rather than prepending: leaving acme-tls/1 advertised would offer a
 	// protocol this server will not actually speak.
 	cfg.NextProtos = []string{"h2", "http/1.1"}
-	return cfg, nil
+	// Record each ClientHello as it arrives. This is the only place it exists:
+	// once the handshake completes the message is gone.
+	return tlsfp.Capture(cfg), nil
 }
 
 // Listen opens the TLS listener, optionally reading a PROXY protocol header
@@ -95,6 +99,11 @@ func Config(ctx context.Context, opts Options) (*tls.Config, error) {
 // The policy is REQUIRE when enabled: beacon should be bound to loopback and
 // reachable only through the proxy, so a connection without the header is
 // unexpected and better refused than silently attributed to the proxy itself.
+//
+// Layering matters. PROXY protocol is plaintext at the very start of the
+// stream, so it must be read before TLS; the fingerprint wrapper sits between
+// that and TLS so the ClientHello handler has a connection to record against,
+// while RemoteAddr still comes from the PROXY header.
 func Listen(addr string, cfg *tls.Config, proxyProtocol bool) (net.Listener, error) {
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
@@ -111,5 +120,5 @@ func Listen(addr string, cfg *tls.Config, proxyProtocol bool) (net.Listener, err
 		}
 	}
 
-	return tls.NewListener(ln, cfg), nil
+	return tls.NewListener(tlsfp.NewListener(ln), cfg), nil
 }
