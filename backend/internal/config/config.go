@@ -2,94 +2,187 @@ package config
 
 import (
 	"fmt"
+	"net/url"
 	"os"
-	"path/filepath"
 	"strconv"
+	"strings"
+	"time"
 )
 
 const (
-	countryEdition = "GeoLite2-Country"
-	cityEdition    = "GeoLite2-City"
-	asnEdition     = "GeoLite2-ASN"
-
-	downloadBaseURL = "https://download.maxmind.com/app/geoip_download"
-
 	defaultUpdatePeriodHours = 12
 	defaultDataDir           = "data"
 	defaultListenAddr        = ":8000"
+	defaultTLSListenAddr     = ":8443"
+	defaultFrontendURL       = "http://frontend:3000"
+	defaultRDNSTimeout       = 300 * time.Millisecond
+	defaultRDNSCacheTTL      = time.Hour
 )
 
 type Config struct {
-	AccountID         string
-	LicenseKey        string
+	// MaxMind credentials are optional: with none set, beacon runs on DB-IP
+	// alone, which needs no account.
+	MaxMindAccountID  string
+	MaxMindLicenseKey string
+	DBIPEnabled       bool
+
 	UpdatePeriodHours int
 	DataDir           string
 	ListenAddr        string
+
+	// FrontendURL is the Next.js upstream browser navigations are proxied to.
+	// Empty disables proxying, and browsers then get plain text like anything
+	// else — useful when running the backend on its own.
+	FrontendURL string
+
+	// TrustProxyHeaders controls whether X-Real-IP / X-Forwarded-For from the
+	// caller are believed. It must be false when the backend is exposed
+	// directly, or any client can pick its own address.
+	TrustProxyHeaders bool
+
+	RDNSEnabled  bool
+	RDNSTimeout  time.Duration
+	RDNSCacheTTL time.Duration
+
+	TLSEnabled    bool
+	TLSListenAddr string
+	Domains       []string
+	ACMEEmail     string
+	ACMECA        string
+	CFAPIToken    string
+	CFZoneToken   string
+	ProxyProtocol bool
 }
 
 func Load() (Config, error) {
-	accountID, err := requireEnv("MAXMIND_ACCOUNT_ID")
-	if err != nil {
-		return Config{}, err
-	}
-	licenseKey, err := requireEnv("MAXMIND_LICENSE_KEY")
-	if err != nil {
-		return Config{}, err
+	cfg := Config{
+		MaxMindAccountID:  os.Getenv("MAXMIND_ACCOUNT_ID"),
+		MaxMindLicenseKey: os.Getenv("MAXMIND_LICENSE_KEY"),
 	}
 
-	updatePeriod := defaultUpdatePeriodHours
+	// Partial MaxMind credentials are a configuration mistake, not a choice to
+	// run without it.
+	if (cfg.MaxMindAccountID == "") != (cfg.MaxMindLicenseKey == "") {
+		return Config{}, fmt.Errorf("MAXMIND_ACCOUNT_ID and MAXMIND_LICENSE_KEY must be set together")
+	}
+
+	var err error
+	if cfg.DBIPEnabled, err = boolEnv("DBIP_ENABLED", true); err != nil {
+		return Config{}, err
+	}
+	if !cfg.DBIPEnabled && cfg.MaxMindAccountID == "" {
+		return Config{}, fmt.Errorf("no GeoIP source enabled: set MAXMIND_* credentials, or leave DBIP_ENABLED=true")
+	}
+
+	cfg.UpdatePeriodHours = defaultUpdatePeriodHours
 	if v := os.Getenv("GEOIP_UPDATE_INTERVAL_HOURS"); v != "" {
 		n, err := strconv.Atoi(v)
 		if err != nil {
 			return Config{}, fmt.Errorf("invalid GEOIP_UPDATE_INTERVAL_HOURS %q: %w", v, err)
 		}
-		updatePeriod = n
+		cfg.UpdatePeriodHours = n
 	}
-	if updatePeriod <= 0 {
-		return Config{}, fmt.Errorf("GEOIP_UPDATE_INTERVAL_HOURS must be positive, got %d", updatePeriod)
-	}
-
-	dataDir := os.Getenv("DATA_DIR")
-	if dataDir == "" {
-		dataDir = defaultDataDir
+	if cfg.UpdatePeriodHours <= 0 {
+		return Config{}, fmt.Errorf("GEOIP_UPDATE_INTERVAL_HOURS must be positive, got %d", cfg.UpdatePeriodHours)
 	}
 
-	listenAddr := os.Getenv("LISTEN_ADDR")
-	if listenAddr == "" {
-		listenAddr = defaultListenAddr
+	cfg.DataDir = envOr("DATA_DIR", defaultDataDir)
+	cfg.ListenAddr = envOr("LISTEN_ADDR", defaultListenAddr)
+	cfg.TLSListenAddr = envOr("TLS_LISTEN_ADDR", defaultTLSListenAddr)
+
+	frontendURL, ok := os.LookupEnv("FRONTEND_URL")
+	if !ok {
+		frontendURL = defaultFrontendURL
+	}
+	if frontendURL != "" {
+		u, err := url.Parse(frontendURL)
+		if err != nil || u.Scheme == "" || u.Host == "" {
+			return Config{}, fmt.Errorf("invalid FRONTEND_URL %q: must be an absolute http(s) URL", frontendURL)
+		}
+	}
+	cfg.FrontendURL = frontendURL
+
+	if cfg.TrustProxyHeaders, err = boolEnv("TRUST_PROXY_HEADERS", true); err != nil {
+		return Config{}, err
+	}
+	if cfg.RDNSEnabled, err = boolEnv("RDNS_ENABLED", true); err != nil {
+		return Config{}, err
+	}
+	if cfg.RDNSTimeout, err = durationEnv("RDNS_TIMEOUT_MS", time.Millisecond, defaultRDNSTimeout); err != nil {
+		return Config{}, err
+	}
+	if cfg.RDNSCacheTTL, err = durationEnv("RDNS_CACHE_TTL_SECONDS", time.Second, defaultRDNSCacheTTL); err != nil {
+		return Config{}, err
 	}
 
-	return Config{
-		AccountID:         accountID,
-		LicenseKey:        licenseKey,
-		UpdatePeriodHours: updatePeriod,
-		DataDir:           dataDir,
-		ListenAddr:        listenAddr,
-	}, nil
+	if err := loadTLS(&cfg); err != nil {
+		return Config{}, err
+	}
+
+	return cfg, nil
 }
 
-func requireEnv(name string) (string, error) {
+func loadTLS(cfg *Config) error {
+	var err error
+	if cfg.TLSEnabled, err = boolEnv("TLS_ENABLED", false); err != nil {
+		return err
+	}
+	if cfg.ProxyProtocol, err = boolEnv("PROXY_PROTOCOL", false); err != nil {
+		return err
+	}
+	if !cfg.TLSEnabled {
+		return nil
+	}
+
+	for _, d := range strings.Split(os.Getenv("DOMAIN"), ",") {
+		if d = strings.TrimSpace(d); d != "" {
+			cfg.Domains = append(cfg.Domains, d)
+		}
+	}
+	if len(cfg.Domains) == 0 {
+		return fmt.Errorf("TLS_ENABLED is set but DOMAIN is empty")
+	}
+
+	cfg.CFAPIToken = os.Getenv("CF_API_TOKEN")
+	if cfg.CFAPIToken == "" {
+		return fmt.Errorf("TLS_ENABLED is set but CF_API_TOKEN is empty")
+	}
+	cfg.CFZoneToken = os.Getenv("CF_ZONE_TOKEN")
+	cfg.ACMEEmail = os.Getenv("ACME_EMAIL")
+	cfg.ACMECA = os.Getenv("ACME_CA")
+
+	return nil
+}
+
+func (c Config) MaxMindEnabled() bool { return c.MaxMindAccountID != "" }
+
+func envOr(name, def string) string {
+	if v := os.Getenv(name); v != "" {
+		return v
+	}
+	return def
+}
+
+func boolEnv(name string, def bool) (bool, error) {
 	v := os.Getenv(name)
 	if v == "" {
-		return "", fmt.Errorf("required environment variable %q is not set", name)
+		return def, nil
 	}
-	return v, nil
+	b, err := strconv.ParseBool(v)
+	if err != nil {
+		return false, fmt.Errorf("invalid %s %q: want true or false", name, v)
+	}
+	return b, nil
 }
 
-func (c Config) CountryDBPath() string { return filepath.Join(c.DataDir, countryEdition+".mmdb") }
-func (c Config) CityDBPath() string    { return filepath.Join(c.DataDir, cityEdition+".mmdb") }
-func (c Config) ASNDBPath() string     { return filepath.Join(c.DataDir, asnEdition+".mmdb") }
-func (c Config) TimestampPath() string { return filepath.Join(c.DataDir, ".timestamp") }
-
-func (c Config) DBPaths() []string {
-	return []string{c.CountryDBPath(), c.CityDBPath(), c.ASNDBPath()}
-}
-
-func (c Config) DownloadURLs() []string {
-	editions := []string{countryEdition, cityEdition, asnEdition}
-	urls := make([]string, 0, len(editions))
-	for _, e := range editions {
-		urls = append(urls, fmt.Sprintf("%s?edition_id=%s&license_key=%s&suffix=tar.gz", downloadBaseURL, e, c.LicenseKey))
+func durationEnv(name string, unit, def time.Duration) (time.Duration, error) {
+	v := os.Getenv(name)
+	if v == "" {
+		return def, nil
 	}
-	return urls
+	n, err := strconv.Atoi(v)
+	if err != nil || n <= 0 {
+		return 0, fmt.Errorf("invalid %s %q: want a positive integer", name, v)
+	}
+	return time.Duration(n) * unit, nil
 }

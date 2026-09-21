@@ -63,10 +63,10 @@ export default function IpView() {
   const isRoot = !pathname || pathname === '/';
   const label = isRoot ? 'Your IP Address' : 'IP Lookup';
 
-  const city = data?.city;
-  const country = data?.country;
-  const countryCode = data?.['country-code'];
-  const asn = data?.asn;
+  const city = data?.location?.city;
+  const country = data?.location?.country;
+  const countryCode = data?.location?.country_code;
+  const asn = data?.network?.asn_label;
 
   const locationParts = [];
   if (city) {

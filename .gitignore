@@ -14,9 +14,6 @@
 # Output of the go coverage tool, specifically when used with LiteIDE
 *.out
 
-# Go test files
-*_test.go
-
 # Dependency directories (remove the comment below to include it)
 # vendor/
 
@@ -35,10 +32,12 @@ go.work.sum
 
 # GeoIP databases (downloaded at runtime)
 /data/
+backend/data/
+**/certmagic/
 
 # Backend build output
-/backend/myip
-/backend/myip.exe
+/backend/beacon
+/backend/beacon.exe
 
 # IDE
 .idea

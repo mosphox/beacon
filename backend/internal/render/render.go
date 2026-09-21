@@ -3,27 +3,80 @@ package render
 import (
 	"bytes"
 	"encoding/json"
+	"net"
 	"net/http"
+	"strconv"
 	"strings"
+	"sync"
+	"time"
 
 	"beacon/internal/geoip"
 )
 
-type IPResponse struct {
-	IP          string
-	City        string
-	Country     string
-	CountryCode string
-	ASN         string
+// SchemaVersion is the shape returned when no explicit version is requested.
+// Version 1 is the original flat object and is kept for existing clients.
+const SchemaVersion = 2
+
+type Response struct {
+	IP       string
+	Hostname string
+	Answers  []geoip.Answer
 }
 
-func FromLookup(ip string, r geoip.Result) IPResponse {
-	return IPResponse{
-		IP:          ip,
-		City:        r.City,
-		Country:     r.Country,
-		CountryCode: r.CountryCode,
-		ASN:         r.ASN,
+func New(ip, hostname string, answers []geoip.Answer) Response {
+	return Response{IP: ip, Hostname: hostname, Answers: answers}
+}
+
+// primary merges the sources field by field, taking each value from the first
+// source that has one.
+//
+// Per-field rather than "the first source that had anything": MaxMind is
+// consulted first and may know an address's ASN while knowing nothing about
+// where it is, and in that case the top level — and all of v1 — should still
+// carry the city DB-IP knows. Values are never blended, only filled in.
+func (resp Response) primary() geoip.Record {
+	var out geoip.Record
+	for _, a := range resp.Answers {
+		r := a.Record
+		fillString(&out.City, r.City)
+		fillString(&out.Country, r.Country)
+		fillString(&out.CountryCode, r.CountryCode)
+		fillString(&out.Continent, r.Continent)
+		fillString(&out.ContinentCode, r.ContinentCode)
+		fillString(&out.PostalCode, r.PostalCode)
+		fillString(&out.TimeZone, r.TimeZone)
+		fillString(&out.RegisteredCountry, r.RegisteredCountry)
+		fillString(&out.RegisteredCountryCode, r.RegisteredCountryCode)
+		fillString(&out.ASNOrg, r.ASNOrg)
+
+		if len(out.Subdivisions) == 0 {
+			out.Subdivisions = r.Subdivisions
+		}
+		if !out.HasCoordinates && r.HasCoordinates {
+			out.Latitude, out.Longitude = r.Latitude, r.Longitude
+			out.AccuracyRadius = r.AccuracyRadius
+			out.HasCoordinates = true
+		}
+		if out.MetroCode == 0 {
+			out.MetroCode = r.MetroCode
+		}
+		if out.ASN == 0 {
+			out.ASN = r.ASN
+		}
+
+		// Flags are assertions, so any source asserting one carries.
+		out.InEuropeanUnion = out.InEuropeanUnion || r.InEuropeanUnion
+		out.IsAnycast = out.IsAnycast || r.IsAnycast
+		out.IsAnonymousProxy = out.IsAnonymousProxy || r.IsAnonymousProxy
+		out.IsSatelliteProvider = out.IsSatelliteProvider || r.IsSatelliteProvider
+		out.HasData = out.HasData || r.HasData
+	}
+	return out
+}
+
+func fillString(dst *string, v string) {
+	if *dst == "" {
+		*dst = v
 	}
 }
 
@@ -34,53 +87,391 @@ func emptyToNull(s string) *string {
 	return &s
 }
 
-func (resp IPResponse) JSON() ([]byte, error) {
-	payload := struct {
-		IP          string  `json:"ip"`
-		City        *string `json:"city"`
-		Country     *string `json:"country"`
-		CountryCode *string `json:"country-code"`
-		ASN         *string `json:"asn"`
-	}{
+func family(ip string) string {
+	parsed := net.ParseIP(ip)
+	switch {
+	case parsed == nil:
+		return ""
+	case parsed.To4() != nil:
+		return "ipv4"
+	default:
+		return "ipv6"
+	}
+}
+
+// ---------------------------------------------------------------- grouping
+
+// group is one distinct value and every source that reported it.
+type group struct {
+	Value   string
+	Sources []string
+}
+
+// groupByValue collapses per-source values into distinct groups, preserving
+// the order sources were registered in. Sources with no value are skipped.
+func groupByValue(answers []geoip.Answer, value func(geoip.Record) string) []group {
+	var groups []group
+	for _, a := range answers {
+		v := value(a.Record)
+		if v == "" {
+			continue
+		}
+		idx := -1
+		for i := range groups {
+			if groups[i].Value == v {
+				idx = i
+				break
+			}
+		}
+		if idx < 0 {
+			groups = append(groups, group{Value: v, Sources: []string{a.Source}})
+			continue
+		}
+		groups[idx].Sources = append(groups[idx].Sources, a.Source)
+	}
+	return groups
+}
+
+// render writes the groups as one field of the plain-text line. When every
+// source agrees there is nothing to attribute, so the value stands alone;
+// when they disagree each value carries the sources that reported it.
+func (g groups) render() string {
+	switch len(g) {
+	case 0:
+		return ""
+	case 1:
+		return g[0].Value
+	}
+	parts := make([]string, 0, len(g))
+	for _, grp := range g {
+		parts = append(parts, grp.Value+" ["+strings.Join(grp.Sources, ", ")+"]")
+	}
+	return strings.Join(parts, " / ")
+}
+
+type groups []group
+
+// locationSegment is the location half of the plain-text line, in the original
+// format: "City [CC] Country", with absent parts omitted.
+func locationSegment(r geoip.Record) string {
+	var parts []string
+	if r.City != "" {
+		parts = append(parts, r.City)
+	}
+	if r.Country != "" {
+		if r.CountryCode != "" {
+			parts = append(parts, "["+r.CountryCode+"] "+r.Country)
+		} else {
+			parts = append(parts, r.Country)
+		}
+	}
+	return strings.Join(parts, " ")
+}
+
+// asnKey groups ASNs by number, not by label. MaxMind and DB-IP almost never
+// spell an organisation identically — "GOOGLE" against "Google LLC" — and
+// reporting that as a disagreement about the network would be noise. The label
+// shown is the first source's, since they agree on what matters.
+func asnKey(r geoip.Record) string {
+	if r.ASN == 0 {
+		return ""
+	}
+	return "AS" + strconv.FormatUint(uint64(r.ASN), 10)
+}
+
+// asnGroups groups on the number but displays the first label seen for it.
+func (resp Response) asnGroups() groups {
+	out := groups(groupByValue(resp.Answers, asnKey))
+	for i := range out {
+		for _, a := range resp.Answers {
+			if asnKey(a.Record) == out[i].Value && a.Record.ASNLabel() != "" {
+				out[i].Value = a.Record.ASNLabel()
+				break
+			}
+		}
+	}
+	return out
+}
+
+// locationGroups groups on the rendered location, then folds any group whose
+// value is a less specific form of another into it.
+//
+// A source that knows only the country is not contradicting one that also
+// knows the city — it is a coarser answer to the same question, and showing
+// "Mountain View [US] United States [MaxMind] / [US] United States [DB-IP]"
+// reads as a conflict where there is none. Folding only happens when there is
+// exactly one more specific candidate, so a genuine split is still shown.
+func (resp Response) locationGroups() groups {
+	out := groups(groupByValue(resp.Answers, locationSegment))
+	if len(out) < 2 {
+		return out
+	}
+
+	kept := out[:0]
+	for _, g := range out {
+		target := -1
+		for j, other := range out {
+			if other.Value == g.Value || !strings.HasSuffix(other.Value, g.Value) {
+				continue
+			}
+			if target >= 0 {
+				target = -1 // ambiguous: more than one refinement, keep it separate
+				break
+			}
+			target = j
+		}
+		if target >= 0 {
+			out[target].Sources = append(out[target].Sources, g.Sources...)
+			continue
+		}
+		kept = append(kept, g)
+	}
+	return kept
+}
+
+// Agree reports whether every source that had an opinion produced a compatible
+// location and the same autonomous system.
+func (resp Response) Agree() bool {
+	return len(resp.locationGroups()) <= 1 && len(resp.asnGroups()) <= 1
+}
+
+// ---------------------------------------------------------------- plain text
+
+// PlainText keeps the original one-line shape — "IP [City] [[CC] Country]
+// [ASN]" — and extends it only where sources disagree, in which case each
+// distinct value is attributed and the alternatives are separated by " / ".
+//
+//	8.8.8.8 Mountain View [US] United States AS15169 (GOOGLE)
+//	1.1.1.1 Brisbane [AU] Australia [MaxMind] / [US] United States [DB-IP] AS13335 (APNIC-1)
+func (resp Response) PlainText() string {
+	parts := []string{resp.IP}
+	if loc := resp.locationGroups().render(); loc != "" {
+		parts = append(parts, loc)
+	}
+	if asn := resp.asnGroups().render(); asn != "" {
+		parts = append(parts, asn)
+	}
+	return strings.Join(parts, " ") + "\n"
+}
+
+// ---------------------------------------------------------------- json
+
+type subdivision struct {
+	Name string  `json:"name"`
+	Code *string `json:"code"`
+}
+
+type location struct {
+	City                  *string       `json:"city"`
+	Region                *string       `json:"region"`
+	RegionCode            *string       `json:"region_code"`
+	Subdivisions          []subdivision `json:"subdivisions"`
+	PostalCode            *string       `json:"postal_code"`
+	Country               *string       `json:"country"`
+	CountryCode           *string       `json:"country_code"`
+	Continent             *string       `json:"continent"`
+	ContinentCode         *string       `json:"continent_code"`
+	InEuropeanUnion       bool          `json:"in_european_union"`
+	RegisteredCountry     *string       `json:"registered_country"`
+	RegisteredCountryCode *string       `json:"registered_country_code"`
+	Latitude              *float64      `json:"latitude"`
+	Longitude             *float64      `json:"longitude"`
+	AccuracyRadiusKm      *uint16       `json:"accuracy_radius_km"`
+	TimeZone              *string       `json:"timezone"`
+	LocalTime             *string       `json:"local_time"`
+	MetroCode             *uint         `json:"metro_code"`
+}
+
+type network struct {
+	ASN      *uint   `json:"asn"`
+	ASNOrg   *string `json:"asn_org"`
+	ASNLabel *string `json:"asn_label"`
+}
+
+type recordFlags struct {
+	Anycast           bool `json:"anycast"`
+	AnonymousProxy    bool `json:"anonymous_proxy"`
+	SatelliteProvider bool `json:"satellite_provider"`
+}
+
+// sourceEntry is one provider's complete answer.
+type sourceEntry struct {
+	Source   string      `json:"source"`
+	Location location    `json:"location"`
+	Network  network     `json:"network"`
+	Flags    recordFlags `json:"flags"`
+}
+
+type payloadV2 struct {
+	Version  int     `json:"version"`
+	IP       string  `json:"ip"`
+	Family   *string `json:"family"`
+	Hostname *string `json:"hostname"`
+
+	// Top-level values come from the first source that had data, so a simple
+	// client can ignore the sources array entirely.
+	Location location    `json:"location"`
+	Network  network     `json:"network"`
+	Flags    recordFlags `json:"flags"`
+
+	SourcesAgree bool          `json:"sources_agree"`
+	Sources      []sourceEntry `json:"sources"`
+}
+
+type payloadV1 struct {
+	IP          string  `json:"ip"`
+	City        *string `json:"city"`
+	Country     *string `json:"country"`
+	CountryCode *string `json:"country-code"`
+	ASN         *string `json:"asn"`
+}
+
+func toLocation(r geoip.Record) location {
+	regionName, regionCode := r.Region()
+
+	subs := make([]subdivision, 0, len(r.Subdivisions))
+	for _, s := range r.Subdivisions {
+		subs = append(subs, subdivision{Name: s.Name, Code: emptyToNull(s.Code)})
+	}
+
+	loc := location{
+		City:                  emptyToNull(r.City),
+		Region:                emptyToNull(regionName),
+		RegionCode:            emptyToNull(regionCode),
+		Subdivisions:          subs,
+		PostalCode:            emptyToNull(r.PostalCode),
+		Country:               emptyToNull(r.Country),
+		CountryCode:           emptyToNull(r.CountryCode),
+		Continent:             emptyToNull(r.Continent),
+		ContinentCode:         emptyToNull(r.ContinentCode),
+		InEuropeanUnion:       r.InEuropeanUnion,
+		RegisteredCountry:     emptyToNull(r.RegisteredCountry),
+		RegisteredCountryCode: emptyToNull(r.RegisteredCountryCode),
+		TimeZone:              emptyToNull(r.TimeZone),
+	}
+
+	if r.HasCoordinates {
+		lat, lon := r.Latitude, r.Longitude
+		loc.Latitude, loc.Longitude = &lat, &lon
+		if r.AccuracyRadius != 0 {
+			radius := r.AccuracyRadius
+			loc.AccuracyRadiusKm = &radius
+		}
+	}
+	if r.MetroCode != 0 {
+		metro := r.MetroCode
+		loc.MetroCode = &metro
+	}
+	if r.TimeZone != "" {
+		if tz := zone(r.TimeZone); tz != nil {
+			loc.LocalTime = emptyToNull(time.Now().In(tz).Format(time.RFC3339))
+		}
+	}
+	return loc
+}
+
+// zones caches time.LoadLocation, which reads and parses a file from the
+// zoneinfo database on every call — once per source per request otherwise.
+var zones sync.Map
+
+func zone(name string) *time.Location {
+	if v, ok := zones.Load(name); ok {
+		tz, _ := v.(*time.Location)
+		return tz
+	}
+	tz, err := time.LoadLocation(name)
+	if err != nil {
+		zones.Store(name, (*time.Location)(nil))
+		return nil
+	}
+	zones.Store(name, tz)
+	return tz
+}
+
+func toNetwork(r geoip.Record) network {
+	nw := network{}
+	if r.ASN != 0 {
+		asn := r.ASN
+		nw.ASN = &asn
+		nw.ASNOrg = emptyToNull(r.ASNOrg)
+		nw.ASNLabel = emptyToNull(r.ASNLabel())
+	}
+	return nw
+}
+
+func toFlags(r geoip.Record) recordFlags {
+	return recordFlags{
+		Anycast:           r.IsAnycast,
+		AnonymousProxy:    r.IsAnonymousProxy,
+		SatelliteProvider: r.IsSatelliteProvider,
+	}
+}
+
+func (resp Response) v2() payloadV2 {
+	primary := resp.primary()
+
+	sources := make([]sourceEntry, 0, len(resp.Answers))
+	for _, a := range resp.Answers {
+		sources = append(sources, sourceEntry{
+			Source:   a.Source,
+			Location: toLocation(a.Record),
+			Network:  toNetwork(a.Record),
+			Flags:    toFlags(a.Record),
+		})
+	}
+
+	return payloadV2{
+		Version:      SchemaVersion,
+		IP:           resp.IP,
+		Family:       emptyToNull(family(resp.IP)),
+		Hostname:     emptyToNull(resp.Hostname),
+		Location:     toLocation(primary),
+		Network:      toNetwork(primary),
+		Flags:        toFlags(primary),
+		SourcesAgree: resp.Agree(),
+		Sources:      sources,
+	}
+}
+
+func (resp Response) v1() payloadV1 {
+	r := resp.primary()
+	return payloadV1{
 		IP:          resp.IP,
-		City:        emptyToNull(resp.City),
-		Country:     emptyToNull(resp.Country),
-		CountryCode: emptyToNull(resp.CountryCode),
-		ASN:         emptyToNull(resp.ASN),
+		City:        emptyToNull(r.City),
+		Country:     emptyToNull(r.Country),
+		CountryCode: emptyToNull(r.CountryCode),
+		ASN:         emptyToNull(r.ASNLabel()),
+	}
+}
+
+func (resp Response) JSON(version int) ([]byte, error) {
+	// v1 stays compact: it is the frozen legacy shape, and callers that pipe it
+	// through grep or cut would break on a pretty-printed body.
+	var payload any
+	indent := false
+	if version == 1 {
+		payload = resp.v1()
+	} else {
+		payload, indent = resp.v2(), true
 	}
 
 	var buf bytes.Buffer
 	enc := json.NewEncoder(&buf)
 	enc.SetEscapeHTML(false)
+	if indent {
+		enc.SetIndent("", "  ")
+	}
 	if err := enc.Encode(payload); err != nil {
 		return nil, err
 	}
 	return bytes.TrimRight(buf.Bytes(), "\n"), nil
 }
 
-func (resp IPResponse) PlainText() string {
-	parts := []string{resp.IP}
-	if resp.City != "" {
-		parts = append(parts, resp.City)
-	}
-	if resp.Country != "" {
-		if resp.CountryCode != "" {
-			parts = append(parts, "["+resp.CountryCode+"] "+resp.Country)
-		} else {
-			parts = append(parts, resp.Country)
-		}
-	}
-	if resp.ASN != "" {
-		parts = append(parts, resp.ASN)
-	}
-	return strings.Join(parts, " ") + "\n"
-}
-
-func (resp IPResponse) Write(w http.ResponseWriter, accept string) {
+func (resp Response) Write(w http.ResponseWriter, asJSON bool, version int) {
 	w.Header().Set("Cache-Control", "no-cache, must-revalidate")
 
-	if strings.Contains(accept, "application/json") {
-		body, err := resp.JSON()
+	if asJSON {
+		body, err := resp.JSON(version)
 		if err != nil {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusInternalServerError)
