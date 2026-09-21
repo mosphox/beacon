@@ -1,44 +1,54 @@
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 
-import { Bloom, Counter, Depth, Display } from './variants';
+import { Brackets, Chromatic, InPlace, LabelSays, Selection, Travel } from './variants';
 import './lab.css';
 
 export const metadata: Metadata = {
-  title: 'Beacon — hero variants',
+  title: 'Beacon — hover variants',
   robots: { index: false, follow: false },
 };
 
 const VARIANTS = [
   {
-    id: 'bloom',
-    name: 'Bloom',
-    note: 'JetBrains Mono, much larger. A blurred copy behind does the glowing; glyphs resolve out of blur on load.',
-    render: <Bloom />,
+    id: 'travel',
+    name: 'The gradient travels',
+    note: 'The address holds still; its colour moves through it over 700ms. The gradient repeats its sequence, so the resting state is identical to the hero as it ships.',
+    render: <Travel />,
   },
   {
-    id: 'counter',
-    name: 'Counter',
-    note: 'Smaller and tighter, white rather than gradient. Digits settle like a mechanical counter; separators never move.',
-    render: <Counter />,
+    id: 'selection',
+    name: 'Selection block',
+    note: 'A terminal text-selection appears behind the glyphs — the shape of the thing you are about to copy, in the vocabulary the rest of the page already uses.',
+    render: <Selection />,
   },
   {
-    id: 'display',
-    name: 'Display',
-    note: 'Martian Mono — wider, more technical. Set small and tracked out, letter-spacing closing on load.',
-    render: <Display />,
+    id: 'brackets',
+    name: 'Brackets close in',
+    note: 'Two brackets slide inward and fade up, the way a shell prompt marks a value. Nothing about the address itself changes.',
+    render: <Brackets />,
   },
   {
-    id: 'depth',
-    name: 'Depth',
-    note: 'Address quiet and crisp; the field behind it carries the colour and leans toward the pointer.',
-    render: <Depth />,
+    id: 'chromatic',
+    name: 'Chromatic split',
+    note: 'Cyan and pink copies drift apart underneath, the separation a CRT gives coloured light. The address stays sharp and still on top.',
+    render: <Chromatic />,
+  },
+  {
+    id: 'label',
+    name: 'The label says it',
+    note: 'No motion on the address at all. The label above stops naming the value and names the action instead — the only new information a hover actually carries.',
+    render: <LabelSays />,
+  },
+  {
+    id: 'inplace',
+    name: 'No hover, answer the click',
+    note: 'Nothing on hover. Clicking swaps the address for a confirmation in place and back again — feedback where the action happened, instead of a toast in the corner. Click this one.',
+    render: <InPlace />,
   },
 ];
 
 export default function LabPage() {
-  // Exploration surface, not part of the product. The Go backend forwards unmatched
-  // browser navigations to Next, so without this it would be publicly reachable.
   if (process.env.NEXT_PUBLIC_USE_MOCK !== '1') {
     notFound();
   }
@@ -46,10 +56,10 @@ export default function LabPage() {
   return (
     <main className="lab">
       <header className="lab-head">
-        <h1>Hero variants</h1>
+        <h1>Hover variants</h1>
         <p>
-          Four treatments for the address, on the richer background. Scroll through; reload to
-          replay the entrances.
+          Six ways the address can answer a pointer, on the hero as it ships. Hover each one;
+          the last one wants a click.
         </p>
       </header>
 

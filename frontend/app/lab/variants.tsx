@@ -1,171 +1,146 @@
 'use client';
 
-import { animate, stagger, useReducedMotion } from 'motion/react';
-import { useEffect, useRef, useState } from 'react';
+import { useRef, useState } from 'react';
 
 const ADDRESS = '149.3.33.84';
-const GLYPHS = '0123456789';
 
 /**
- * Splits an address into characters so each can be animated independently.
- * Separators are marked so they can be held back from the motion.
+ * Address renders the chosen hero treatment: a gradient clipped to the glyphs over a
+ * blurred duplicate that does the glowing.
+ *
+ * The address element itself must never be transformed, masked, or given a per-child
+ * opacity — that puts it in its own painting context and the clipped gradient stops
+ * compositing. Every hover below therefore works on the glow, on a sibling, or on paint
+ * properties of the text (colour, background-position), never on its geometry.
  */
-function chars(value: string) {
-  return value.split('').map((c, i) => ({ c, i, sep: c === '.' || c === ':' }));
-}
-
-/* ------------------------------------------------------------------ A: bloom */
-
-/**
- * The address arrives as light: each glyph fades up out of a blur, and a second
- * copy sits behind it, heavily blurred, doing the glowing.
- */
-export function Bloom() {
-  const root = useRef<HTMLDivElement>(null);
-  const reduced = useReducedMotion();
-
-  useEffect(() => {
-    if (reduced || !root.current) return;
-    const glyphs = root.current.querySelectorAll('[data-glyph]');
-    animate(
-      glyphs,
-      { opacity: [0, 1], filter: ['blur(12px)', 'blur(0px)'], y: [14, 0] },
-      { duration: 0.7, delay: stagger(0.045), ease: [0.2, 0, 0, 1] },
-    );
-  }, [reduced]);
-
+function Address({ className = '' }: { className?: string }) {
   return (
-    <div className="v-bloom" ref={root}>
-      <span className="v-bloom-glow" aria-hidden="true">
+    <span className={`demo-ip ${className}`}>
+      <span className="demo-ip-glow" aria-hidden="true">
         {ADDRESS}
       </span>
-      <span className="v-bloom-text">
-        {chars(ADDRESS).map(({ c, i }) => (
-          <span data-glyph key={i}>
-            {c}
-          </span>
-        ))}
+      <span className="demo-ip-text" aria-hidden="true">
+        {ADDRESS}
       </span>
-    </div>
+      <span className="sr-only">{ADDRESS}</span>
+    </span>
   );
 }
 
-/* ---------------------------------------------------------------- B: counter */
+/* --------------------------------------------------- A: the gradient travels */
 
 /**
- * Digits settle like a mechanical counter. The separators never move, so the
- * address stays readable as the numbers find their values.
+ * The address holds still; its colour moves through it. The gradient repeats its
+ * sequence so any window onto it reads the same, which means it can slide without the
+ * resting state looking different from the chosen hero.
  */
-export function Counter() {
-  const [shown, setShown] = useState(ADDRESS);
-  const reduced = useReducedMotion();
-
-  useEffect(() => {
-    if (reduced) return;
-    let frame = 0;
-    const total = 26;
-    const id = setInterval(() => {
-      frame += 1;
-      if (frame >= total) {
-        setShown(ADDRESS);
-        clearInterval(id);
-        return;
-      }
-      // Each glyph locks in turn, left to right.
-      const locked = Math.floor((frame / total) * ADDRESS.length);
-      setShown(
-        ADDRESS.split('')
-          .map((c, i) =>
-            i < locked || c === '.' ? c : GLYPHS[Math.floor(Math.random() * GLYPHS.length)],
-          )
-          .join(''),
-      );
-    }, 45);
-    return () => clearInterval(id);
-  }, [reduced]);
-
+export function Travel() {
   return (
-    <div className="v-counter">
-      <span className="v-counter-text">{shown}</span>
-      <span className="v-counter-rule" aria-hidden="true" />
-    </div>
+    <button type="button" className="demo-btn h-travel">
+      <Address />
+    </button>
   );
 }
 
-/* ---------------------------------------------------------------- C: display */
+/* ------------------------------------------------------- B: selection block */
 
-/**
- * A wider, more editorial face, set small and tracked out. The address reads as
- * a specimen rather than a readout — quiet, but unmistakably deliberate.
- */
-export function Display() {
-  const root = useRef<HTMLDivElement>(null);
-  const reduced = useReducedMotion();
-
-  useEffect(() => {
-    if (reduced || !root.current) return;
-    const glyphs = root.current.querySelectorAll('[data-glyph]');
-    animate(
-      glyphs,
-      { opacity: [0, 1], letterSpacing: ['0.4em', '0.08em'] },
-      { duration: 0.9, delay: stagger(0.03), ease: [0.2, 0, 0, 1] },
-    );
-  }, [reduced]);
-
+/** A terminal selection behind the glyphs — the shape of the thing you are about to copy. */
+export function Selection() {
   return (
-    <div className="v-display" ref={root}>
-      <span className="v-display-text">
-        {chars(ADDRESS).map(({ c, i }) => (
-          <span data-glyph key={i}>
-            {c}
-          </span>
-        ))}
-      </span>
-    </div>
+    <button type="button" className="demo-btn h-select">
+      <Address />
+    </button>
   );
 }
 
-/* ------------------------------------------------------------------ D: depth */
+/* ------------------------------------------------------------- C: brackets */
+
+/** Two brackets close in around the address, the way a prompt marks a value. */
+export function Brackets() {
+  return (
+    <button type="button" className="demo-btn h-brackets">
+      <span className="bracket left" aria-hidden="true">
+        [
+      </span>
+      <Address />
+      <span className="bracket right" aria-hidden="true">
+        ]
+      </span>
+    </button>
+  );
+}
+
+/* ----------------------------------------------------- D: chromatic split */
 
 /**
- * The address is quiet and crisp; the field behind it does the work, drifting
- * slowly and leaning toward the pointer.
+ * Two more glow copies, cyan and pink, drift apart under the address on hover — the
+ * separation a CRT gives coloured light. The address stays perfectly still and sharp.
  */
-export function Depth() {
-  const root = useRef<HTMLDivElement>(null);
-  const reduced = useReducedMotion();
+export function Chromatic() {
+  return (
+    <button type="button" className="demo-btn h-chroma">
+      <span className="demo-ip h-chroma-stack">
+        <span className="chroma cy" aria-hidden="true">
+          {ADDRESS}
+        </span>
+        <span className="chroma pk" aria-hidden="true">
+          {ADDRESS}
+        </span>
+        <span className="demo-ip-text" aria-hidden="true">
+          {ADDRESS}
+        </span>
+        <span className="sr-only">{ADDRESS}</span>
+      </span>
+    </button>
+  );
+}
 
-  useEffect(() => {
-    const el = root.current;
-    if (reduced || !el) return;
+/* ----------------------------------------------------------- E: label says */
 
-    animate(
-      el.querySelectorAll('[data-glyph]'),
-      { opacity: [0, 1], y: [8, 0] },
-      { duration: 0.5, delay: stagger(0.03) },
-    );
+/**
+ * Nothing on the address at all. The label above it changes from naming the value to
+ * naming the action, which is the only new information a hover actually carries.
+ */
+export function LabelSays() {
+  return (
+    <button type="button" className="demo-btn h-label">
+      <span className="demo-label">
+        <span className="rest">Your IP address</span>
+        <span className="hover">Click to copy</span>
+      </span>
+      <Address />
+    </button>
+  );
+}
 
-    function onMove(e: PointerEvent) {
-      const r = el!.getBoundingClientRect();
-      const x = (e.clientX - r.left) / r.width - 0.5;
-      const y = (e.clientY - r.top) / r.height - 0.5;
-      el!.style.setProperty('--lean-x', `${x * 16}px`);
-      el!.style.setProperty('--lean-y', `${y * 16}px`);
-    }
-    window.addEventListener('pointermove', onMove);
-    return () => window.removeEventListener('pointermove', onMove);
-  }, [reduced]);
+/* ------------------------------------------------------------ F: real copy */
+
+/**
+ * The interaction itself as the feedback: no hover state, but clicking swaps the address
+ * for a confirmation in place, then swaps back.
+ */
+export function InPlace() {
+  const [copied, setCopied] = useState(false);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  function onClick() {
+    navigator.clipboard?.writeText(ADDRESS).catch(() => {});
+    setCopied(true);
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = setTimeout(() => setCopied(false), 1400);
+  }
 
   return (
-    <div className="v-depth" ref={root}>
-      <span className="v-depth-field" aria-hidden="true" />
-      <span className="v-depth-text">
-        {chars(ADDRESS).map(({ c, i }) => (
-          <span data-glyph key={i}>
-            {c}
-          </span>
-        ))}
+    <button type="button" className="demo-btn h-inplace" onClick={onClick}>
+      <span className={`demo-ip ${copied ? 'is-copied' : ''}`}>
+        <span className="demo-ip-glow" aria-hidden="true">
+          {ADDRESS}
+        </span>
+        <span className="demo-ip-text" aria-hidden="true">
+          {copied ? 'copied' : ADDRESS}
+        </span>
+        <span className="sr-only">{ADDRESS}</span>
       </span>
-    </div>
+    </button>
   );
 }

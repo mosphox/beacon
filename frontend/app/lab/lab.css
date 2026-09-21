@@ -1,30 +1,22 @@
-/* Exploration only — nothing here is part of the shipped page until a variant is chosen. */
-
-/* A richer field than the current three navy stops: the same dark base, but with teal,
-   violet and a warm magenta pulled in so the corners differ from each other. */
-.lab,
-.rich-bg {
-  --wash: radial-gradient(ellipse 80% 60% at 15% 15%, rgb(0 180 216 / 0.16) 0%, transparent 60%),
-    radial-gradient(ellipse 70% 70% at 85% 25%, rgb(124 58 237 / 0.22) 0%, transparent 60%),
-    radial-gradient(ellipse 90% 60% at 75% 85%, rgb(236 72 153 / 0.14) 0%, transparent 60%),
-    radial-gradient(ellipse 60% 50% at 20% 80%, rgb(16 185 129 / 0.1) 0%, transparent 60%);
-}
+/* Exploration only — nothing here ships until a variant is chosen. */
 
 .lab {
   position: relative;
   min-height: 100svh;
   background:
-    var(--wash),
+    radial-gradient(ellipse 80% 60% at 15% 15%, rgb(0 180 216 / 0.16) 0%, transparent 60%),
+    radial-gradient(ellipse 70% 70% at 85% 25%, rgb(124 58 237 / 0.22) 0%, transparent 60%),
+    radial-gradient(ellipse 90% 60% at 75% 85%, rgb(236 72 153 / 0.14) 0%, transparent 60%),
+    radial-gradient(ellipse 60% 50% at 20% 80%, rgb(16 185 129 / 0.1) 0%, transparent 60%),
     linear-gradient(160deg, #0b0b1a 0%, #14142b 40%, #101a35 70%, #0d1b2a 100%);
   background-attachment: fixed;
+  padding-bottom: 96px;
 }
 
 .lab-head {
-  position: relative;
-  z-index: 1;
   max-width: 720px;
   margin: 0 auto;
-  padding: 64px var(--gutter) 0;
+  padding: 64px var(--gutter) 32px;
 }
 
 .lab-head h1 {
@@ -37,32 +29,20 @@
   margin-top: 8px;
   font-weight: 300;
   color: var(--ink-2);
-  max-width: 60ch;
+  max-width: 64ch;
 }
 
 .lab-slide {
-  position: relative;
-  z-index: 1;
-  min-height: 92svh;
-  display: grid;
-  grid-template-rows: 1fr auto;
-  align-items: center;
-  padding: 32px var(--gutter);
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 40px var(--gutter);
+  border-top: 1px solid var(--rule);
 }
 
 .lab-stage {
   display: grid;
   place-items: center;
-  text-align: center;
-  width: 100%;
-}
-
-.lab-caption {
-  max-width: 720px;
-  margin: 0 auto;
-  width: 100%;
-  border-top: 1px solid var(--rule);
-  padding-top: 12px;
+  min-height: 190px;
 }
 
 .lab-caption h2 {
@@ -78,125 +58,233 @@
   max-width: 72ch;
 }
 
-/* ------------------------------------------------------------------ A: bloom */
-
-.v-bloom {
-  position: relative;
-  display: inline-grid;
-  place-items: center;
-  user-select: text;
-}
-
-.v-bloom-text,
-.v-bloom-glow {
-  grid-area: 1 / 1;
-  font-family: var(--font-jetbrains), monospace;
-  font-weight: 700;
-  font-size: clamp(2.5rem, 13vw, 8rem);
-  line-height: 1;
-  letter-spacing: -0.02em;
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
   white-space: nowrap;
 }
 
-.v-bloom-text {
-  background: linear-gradient(100deg, #67e8f9, #a78bfa 45%, #f0abfc 80%);
+/* ---------------------------------------------------------- shared address */
+
+.demo-btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  padding: 8px;
+  font-family: var(--font-jetbrains), monospace;
+}
+
+.demo-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 6px;
+  border-radius: 4px;
+}
+
+.demo-ip {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  font-family: var(--font-jetbrains), monospace;
+  font-weight: 700;
+  font-size: clamp(1.75rem, 6vw, 3.25rem);
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+}
+
+.demo-ip-text,
+.demo-ip-glow,
+.chroma {
+  grid-area: 1 / 1;
+  white-space: nowrap;
+}
+
+.demo-ip-text {
+  background-image: linear-gradient(100deg, #67e8f9, #a78bfa 45%, #f0abfc 80%);
   background-clip: text;
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
 }
 
-/* The glow is a second copy, blurred — cheaper and softer than stacked text-shadows,
-   and it keeps the crisp copy perfectly sharp on top. */
-.v-bloom-glow {
+.demo-ip-glow {
   color: #a78bfa;
-  filter: blur(28px);
+  filter: blur(22px);
   opacity: 0.55;
   pointer-events: none;
 }
 
-/* --------------------------------------------------------------- B: counter */
+/* --------------------------------------------------- A: the gradient travels */
 
-.v-counter {
-  display: inline-grid;
-  justify-items: center;
-  gap: 12px;
-  user-select: text;
+/* The colour sequence repeats, so the window onto it at rest reads exactly like the
+   chosen hero — and sliding a full period lands somewhere identical. */
+.h-travel .demo-ip-text {
+  background-image: linear-gradient(
+    100deg,
+    #67e8f9 0%,
+    #a78bfa 22%,
+    #f0abfc 45%,
+    #67e8f9 55%,
+    #a78bfa 78%,
+    #f0abfc 100%
+  );
+  background-size: 200% 100%;
+  background-position: 0% center;
+  transition: background-position 700ms cubic-bezier(0.2, 0, 0, 1);
 }
 
-.v-counter-text {
-  font-family: var(--font-jetbrains), monospace;
-  font-weight: 400;
-  font-size: clamp(1.75rem, 6vw, 3.25rem);
-  letter-spacing: 0.06em;
-  color: #f5f5f7;
-  font-variant-numeric: tabular-nums;
+.h-travel:hover .demo-ip-text,
+.h-travel:focus-visible .demo-ip-text {
+  background-position: 100% center;
 }
 
-.v-counter-rule {
-  display: block;
-  width: 100%;
-  height: 2px;
-  background: linear-gradient(90deg, transparent, #67e8f9, #a78bfa, transparent);
-}
+/* ------------------------------------------------------- B: selection block */
 
-/* --------------------------------------------------------------- C: display */
-
-.v-display-text {
-  font-family: var(--font-martian), monospace;
-  font-weight: 300;
-  font-size: clamp(1rem, 3.4vw, 2rem);
-  letter-spacing: 0.08em;
-  color: #e9e9f0;
-  white-space: nowrap;
-  display: inline-block;
-}
-
-.v-display-text span {
-  display: inline-block;
-}
-
-/* ----------------------------------------------------------------- D: depth */
-
-.v-depth {
-  position: relative;
-  display: inline-grid;
-  place-items: center;
-  padding: 64px;
-  user-select: text;
-  --lean-x: 0px;
-  --lean-y: 0px;
-}
-
-.v-depth-field {
+.h-select .demo-ip::before {
+  content: '';
   position: absolute;
-  inset: -20%;
-  background:
-    radial-gradient(circle at 35% 40%, rgb(103 232 249 / 0.35), transparent 55%),
-    radial-gradient(circle at 65% 60%, rgb(167 139 250 / 0.4), transparent 55%),
-    radial-gradient(circle at 50% 75%, rgb(240 171 252 / 0.25), transparent 55%);
-  filter: blur(40px);
-  transform: translate3d(var(--lean-x), var(--lean-y), 0);
-  transition: transform 400ms cubic-bezier(0.2, 0, 0, 1);
+  inset: -2px -12px;
+  border-radius: 3px;
+  background: rgb(167 139 250 / 0);
+  transition: background-color 160ms ease-out;
+}
+
+.h-select:hover .demo-ip::before,
+.h-select:focus-visible .demo-ip::before {
+  background: rgb(167 139 250 / 0.18);
+}
+
+/* ------------------------------------------------------------- C: brackets */
+
+.h-brackets .bracket {
+  font-size: clamp(1.75rem, 6vw, 3.25rem);
+  font-weight: 300;
+  color: var(--accent);
+  opacity: 0;
+  transition:
+    opacity 180ms ease-out,
+    transform 180ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+.h-brackets .bracket.left {
+  transform: translateX(10px);
+}
+
+.h-brackets .bracket.right {
+  transform: translateX(-10px);
+}
+
+.h-brackets:hover .bracket,
+.h-brackets:focus-visible .bracket {
+  opacity: 0.8;
+  transform: none;
+}
+
+/* ----------------------------------------------------- D: chromatic split */
+
+.h-chroma-stack {
+  isolation: isolate;
+}
+
+.chroma {
   pointer-events: none;
+  opacity: 0;
+  filter: blur(6px);
+  transition:
+    opacity 220ms ease-out,
+    transform 220ms cubic-bezier(0.2, 0, 0, 1);
 }
 
-.v-depth-text {
+.chroma.cy {
+  color: #67e8f9;
+}
+
+.chroma.pk {
+  color: #f0abfc;
+}
+
+.h-chroma:hover .chroma,
+.h-chroma:focus-visible .chroma {
+  opacity: 0.75;
+}
+
+.h-chroma:hover .chroma.cy,
+.h-chroma:focus-visible .chroma.cy {
+  transform: translateX(-7px);
+}
+
+.h-chroma:hover .chroma.pk,
+.h-chroma:focus-visible .chroma.pk {
+  transform: translateX(7px);
+}
+
+/* ----------------------------------------------------------- E: label says */
+
+.h-label {
+  flex-direction: column;
+  gap: 10px;
+}
+
+.demo-label {
   position: relative;
-  font-family: var(--font-jetbrains), monospace;
-  font-weight: 400;
-  font-size: clamp(1.5rem, 5vw, 3rem);
-  letter-spacing: 0.02em;
-  color: #fff;
-  white-space: nowrap;
+  display: grid;
+  font-family: var(--font-outfit), sans-serif;
+  font-size: 0.8125rem;
+  font-weight: 300;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  color: var(--ink-3);
 }
 
-.v-depth-text span {
-  display: inline-block;
+.demo-label .rest,
+.demo-label .hover {
+  grid-area: 1 / 1;
+  transition: opacity 160ms ease-out;
+}
+
+.demo-label .hover {
+  opacity: 0;
+  color: var(--accent);
+}
+
+.h-label:hover .demo-label .rest,
+.h-label:focus-visible .demo-label .rest {
+  opacity: 0;
+}
+
+.h-label:hover .demo-label .hover,
+.h-label:focus-visible .demo-label .hover {
+  opacity: 1;
+}
+
+/* ------------------------------------------------------------ F: in place */
+
+.h-inplace .demo-ip-text {
+  transition: opacity 120ms ease-out;
+}
+
+.h-inplace .demo-ip.is-copied .demo-ip-text {
+  background-image: linear-gradient(100deg, #34d399, #6ee7b7);
+  background-clip: text;
+  -webkit-background-clip: text;
+}
+
+.h-inplace .demo-ip.is-copied .demo-ip-glow {
+  color: #34d399;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .v-depth-field {
-    transform: none;
+  .h-travel .demo-ip-text,
+  .h-brackets .bracket,
+  .chroma,
+  .demo-label .rest,
+  .demo-label .hover,
+  .h-select .demo-ip::before {
     transition: none;
   }
 }
