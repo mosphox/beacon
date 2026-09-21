@@ -72,9 +72,6 @@ export default function BeaconView() {
     const root = addressRef.current;
     if (reducedMotion || !root) return;
 
-    // Glyphs move and fade only. They carry a background-clip: text gradient, and any
-    // filter on such an element puts it in its own painting context where the clipped
-    // background stops compositing — the address renders as nothing at all.
     // Only the glow is animated. It is flat colour with no clipped background, so a
     // filter on it is safe; pulling it into focus behind the address is what reads as the
     // address resolving out of light. The address itself rides the hero's CSS fade-up.

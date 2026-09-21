@@ -185,27 +185,36 @@ button.ip {
   -webkit-text-fill-color: transparent;
 }
 
-/* The glow is flat colour with no clipping, so it can carry a filter. */
+/* The glow is flat colour with no clipping, so unlike the address itself it can carry a
+   filter and a transform safely. That makes it the only part of the hero that can react
+   to the pointer — so the bloom is what answers a hover, rather than the address
+   changing size. */
 .ip-glow {
   color: #a78bfa;
   filter: blur(28px);
   opacity: 0.55;
   pointer-events: none;
+  transform: scale(1);
+  transition:
+    opacity 200ms cubic-bezier(0.2, 0, 0, 1),
+    transform 200ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+button.ip:hover .ip-glow,
+button.ip:focus-visible .ip-glow {
+  opacity: 0.85;
+  transform: scale(1.08);
+}
+
+button.ip:active .ip-glow {
+  opacity: 1;
+  transform: scale(1.02);
 }
 
 button.ip {
   border: 0;
   background: none;
   cursor: pointer;
-  transition: transform 120ms;
-}
-
-button.ip:hover {
-  transform: scale(1.02);
-}
-
-button.ip:active {
-  transform: scale(0.98);
 }
 
 .hero-location {
