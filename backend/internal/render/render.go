@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"beacon/internal/geoip"
+	"beacon/internal/h2fp"
 	"beacon/internal/tlsfp"
 )
 
@@ -29,6 +30,9 @@ type Response struct {
 	// consumed upstream and cannot be recovered.
 	TLS        *tlsfp.Fingerprint
 	Negotiated *NegotiatedTLS
+
+	// HTTP2 is nil unless the request arrived over HTTP/2.
+	HTTP2 *h2fp.Fingerprint
 }
 
 // NegotiatedTLS is what the two sides actually settled on, as opposed to what
@@ -50,6 +54,12 @@ func New(ip, hostname string, answers []geoip.Answer) Response {
 // WithTLS attaches the fingerprint and negotiated parameters for this request.
 func (resp Response) WithTLS(fp *tlsfp.Fingerprint, n *NegotiatedTLS) Response {
 	resp.TLS, resp.Negotiated = fp, n
+	return resp
+}
+
+// WithHTTP2 attaches the Akamai HTTP/2 fingerprint for this request.
+func (resp Response) WithHTTP2(fp *h2fp.Fingerprint) Response {
+	resp.HTTP2 = fp
 	return resp
 }
 
@@ -350,6 +360,27 @@ type tlsNegotiated struct {
 	ECHAccepted bool    `json:"ech_accepted"`
 }
 
+type h2Setting struct {
+	ID    uint16 `json:"id"`
+	Value uint32 `json:"value"`
+}
+
+type h2Priority struct {
+	StreamID  uint32 `json:"stream_id"`
+	Exclusive bool   `json:"exclusive"`
+	DependsOn uint32 `json:"depends_on"`
+	Weight    uint16 `json:"weight"`
+}
+
+type http2Block struct {
+	Akamai            string       `json:"akamai"`
+	AkamaiHash        string       `json:"akamai_hash"`
+	Settings          []h2Setting  `json:"settings"`
+	WindowUpdate      uint32       `json:"window_update"`
+	Priorities        []h2Priority `json:"priorities"`
+	PseudoHeaderOrder []string     `json:"pseudo_header_order"`
+}
+
 type tlsBlock struct {
 	JA3      string `json:"ja3"`
 	JA3Hash  string `json:"ja3_hash"`
@@ -382,6 +413,9 @@ type payloadV2 struct {
 
 	// Null unless beacon terminated this connection's TLS itself.
 	TLS *tlsBlock `json:"tls"`
+
+	// Null unless the request arrived over HTTP/2.
+	HTTP2 *http2Block `json:"http2"`
 }
 
 type payloadV1 struct {
@@ -488,6 +522,7 @@ func (resp Response) v2() payloadV2 {
 
 	return payloadV2{
 		TLS:          resp.tlsBlock(),
+		HTTP2:        resp.http2Block(),
 		Version:      SchemaVersion,
 		IP:           resp.IP,
 		Family:       emptyToNull(family(resp.IP)),
@@ -540,6 +575,34 @@ func (resp Response) tlsBlock() *tlsBlock {
 		}
 	}
 	return b
+}
+
+func (resp Response) http2Block() *http2Block {
+	fp := resp.HTTP2
+	if fp == nil {
+		return nil
+	}
+	settings := make([]h2Setting, 0, len(fp.Settings))
+	for _, s := range fp.Settings {
+		settings = append(settings, h2Setting{ID: s.ID, Value: s.Value})
+	}
+	priorities := make([]h2Priority, 0, len(fp.Priorities))
+	for _, pr := range fp.Priorities {
+		priorities = append(priorities, h2Priority{
+			StreamID:  pr.StreamID,
+			Exclusive: pr.Exclusive,
+			DependsOn: pr.DependsOn,
+			Weight:    pr.Weight,
+		})
+	}
+	return &http2Block{
+		Akamai:            fp.Raw,
+		AkamaiHash:        fp.Hash,
+		Settings:          settings,
+		WindowUpdate:      fp.WindowUpdate,
+		Priorities:        priorities,
+		PseudoHeaderOrder: fp.PseudoHeaderOrder,
+	}
 }
 
 func (resp Response) v1() payloadV1 {

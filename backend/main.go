@@ -24,6 +24,7 @@ import (
 	"beacon/internal/browser"
 	"beacon/internal/config"
 	"beacon/internal/geoip"
+	"beacon/internal/h2fp"
 	"beacon/internal/rdns"
 	"beacon/internal/render"
 	"beacon/internal/tlsfp"
@@ -133,17 +134,22 @@ func main() {
 		if err != nil {
 			log.Fatalf("tls: %v", err)
 		}
+		tlsSrv := newHTTPServer("", handler)
+		// Replace the standard HTTP/2 wiring with one that reads the client's
+		// opening frames. Every h2 limit and timeout stays as the library set it.
+		if err := h2fp.Configure(tlsSrv); err != nil {
+			log.Fatalf("http2: %v", err)
+		}
 		log.Printf("serving HTTPS on %s for %s (PROXY protocol: %v)",
 			cfg.TLSListenAddr, strings.Join(cfg.Domains, ", "), cfg.ProxyProtocol)
 
-		tlsHandler := handler
 		if cfg.ProxyProtocol {
 			// The PROXY header already carries the true client address, so any
 			// forwarded header on this listener came from the client itself.
-			tlsHandler = stripForwarded(handler)
+			tlsSrv.Handler = stripForwarded(handler)
 			log.Println("PROXY protocol in use: ignoring forwarded headers on the TLS listener")
 		}
-		servers = append(servers, serve(&wg, newHTTPServer("", tlsHandler), ln, serveErr))
+		servers = append(servers, serve(&wg, tlsSrv, ln, serveErr))
 	}
 
 	if cfg.ListenAddr != "" {
@@ -330,7 +336,9 @@ func (s *server) serveLookup(w http.ResponseWriter, r *http.Request, ip string) 
 
 	resp := render.New(ip, hostname, s.geo.LookupAll(ip))
 	if asJSON && version != 1 {
-		resp = resp.WithTLS(tlsfp.FromContext(r.Context()), negotiatedTLS(r))
+		resp = resp.
+			WithTLS(tlsfp.FromContext(r.Context()), negotiatedTLS(r)).
+			WithHTTP2(h2fp.FromContext(r.Context()))
 	}
 	resp.Write(w, asJSON, version)
 }

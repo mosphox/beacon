@@ -25,9 +25,11 @@ chosen automatically from the request's `User-Agent` and `Accept` headers.
 - **Own TLS, optionally.** beacon can terminate TLS itself, obtaining and
   renewing certificates in-process over the ACME DNS-01 challenge, with no
   cron job and no second process.
-- **TLS client fingerprints.** When beacon terminates TLS it reports JA3, JA3N
-  and the four JA4 variants, plus the decoded ClientHello — computed from the
-  standard library alone, with no third-party TLS stack.
+- **TLS and HTTP/2 client fingerprints.** When beacon terminates TLS it reports
+  JA3, JA3N and the four JA4 variants with the decoded ClientHello, and the
+  Akamai HTTP/2 fingerprint with the client's opening frames — computed from
+  the standard library and `x/net/http2`'s public API, with no forked TLS or
+  HTTP/2 stack.
 - **Arbitrary lookups.** `GET /` returns the caller's IP; `GET /{ip}` looks up
   any address.
 - **Self-maintaining GeoIP data.** Databases are downloaded on first start and
@@ -305,6 +307,29 @@ With `TLS_ENABLED=true` the JSON response carries a `tls` block:
 
 The block is `null` in plain-HTTP mode, and `?v=1` never carries it.
 
+An HTTP/2 request also carries an `http2` block:
+
+```json
+"http2": {
+  "akamai": "3:100;4:10485760;2:0|1048510465|0|m,s,a,p",
+  "akamai_hash": "64a832f547be33249bf4d33e8a46c5dc",
+  "settings": [{"id": 3, "value": 100}, {"id": 4, "value": 10485760}, {"id": 2, "value": 0}],
+  "window_update": 1048510465,
+  "priorities": [],
+  "pseudo_header_order": ["m", "s", "a", "p"]
+}
+```
+
+The four fields are the client's SETTINGS in the order sent, its initial
+connection-level WINDOW_UPDATE, any PRIORITY frames, and the order of the
+pseudo-headers in its first request. It is `null` for HTTP/1.1.
+
+Clients differ more than you might expect: curl sends
+`3:100;4:10485760;2:0|1048510465|0|m,s,a,p`, while Go's own HTTP/2 client
+sends `2:0;4:4194304;5:16384;6:10485760|1073741824|0|a,m,p,s` — different
+settings, different values, and pseudo-headers in alphabetical order rather
+than the usual method/scheme/authority/path.
+
 `ja3` and `ja4` use the client's wire order; `ja3n` and `ja4` sort what they
 hash, which is what makes them survive Chrome's per-connection extension
 permutation. `ja4_o` and `ja4_ro` keep the wire order on purpose, so the two
@@ -312,10 +337,18 @@ forms together show whether a client permutes. GREASE values (RFC 8701) are
 excluded from every fingerprint — they are random per connection — but their
 presence is reported as `client_hello.grease`.
 
-It all comes from `tls.ClientHelloInfo`, which the standard library fills with
-the cipher suites, the extension IDs **in wire order**, the supported groups,
-the signature algorithms and the offered ALPN protocols exactly as sent. No
-third-party TLS stack and no raw ClientHello capture is involved.
+The TLS side comes from `tls.ClientHelloInfo`, which the standard library
+fills with the cipher suites, the extension IDs **in wire order**, the
+supported groups, the signature algorithms and the offered ALPN protocols
+exactly as sent. No third-party TLS stack and no raw ClientHello capture is
+involved.
+
+The HTTP/2 side is usually done by forking `golang.org/x/net/http2` to reach
+its frame loop. That is not necessary either: `http2.Server.ServeConn` is
+public and accepts any `net.Conn`, so a connection wrapper reads the opening
+frames on their way past and hands the real server an untouched stream. HTTP/2
+is configured exactly as the library would have done it, then its ALPN entry
+is swapped for the wrapping one, so every limit and timeout is unchanged.
 
 JA3 is Salesforce's and JA4 is FoxIO's, BSD-3-Clause licensed. The rest of the
 JA4+ suite is under a non-commercial licence that is incompatible with this
@@ -457,6 +490,7 @@ backend/                  Go service
   internal/geoip          providers, registry, refresh loop, mmdb lookups
   internal/rdns           bounded, cached reverse-DNS lookups
   internal/render         JSON (v1/v2) / plain-text response shaping
+  internal/h2fp           Akamai HTTP/2 fingerprint, frame capture
   internal/tlsfp          JA3/JA4 fingerprints, ClientHello capture
   internal/tlsserve       ACME DNS-01 certificates, TLS + PROXY listener
 frontend/                 Next.js 14 app (App Router, standalone output)

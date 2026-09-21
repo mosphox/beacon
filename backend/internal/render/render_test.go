@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"beacon/internal/geoip"
+	"beacon/internal/h2fp"
 	"beacon/internal/tlsfp"
 )
 
@@ -428,6 +429,57 @@ func TestV1HasNoTLSBlock(t *testing.T) {
 	m := decode(t, resp, 1)
 	if _, ok := m["tls"]; ok {
 		t.Error("v1 grew a tls key")
+	}
+	if len(m) != 5 {
+		t.Errorf("v1 has %d keys, want 5", len(m))
+	}
+}
+
+func TestHTTP2BlockAbsentForHTTP11(t *testing.T) {
+	m := decode(t, New("8.8.8.8", "", one("MaxMind", full())), SchemaVersion)
+	if m["http2"] != nil {
+		t.Errorf("http2 = %v, want null for a non-HTTP/2 request", m["http2"])
+	}
+}
+
+func TestHTTP2BlockPresent(t *testing.T) {
+	fp := &h2fp.Fingerprint{
+		Raw:  "3:100;4:10485760;2:0|1048510465|0|m,s,a,p",
+		Hash: "64a832f547be33249bf4d33e8a46c5dc",
+		Settings: []h2fp.Setting{
+			{ID: 3, Value: 100}, {ID: 4, Value: 10485760}, {ID: 2, Value: 0},
+		},
+		WindowUpdate:      1048510465,
+		PseudoHeaderOrder: []string{"m", "s", "a", "p"},
+	}
+	m := decode(t, New("8.8.8.8", "", one("MaxMind", full())).WithHTTP2(fp), SchemaVersion)
+
+	blk, ok := m["http2"].(map[string]any)
+	if !ok {
+		t.Fatalf("http2 = %v, want an object", m["http2"])
+	}
+	if blk["akamai"] != fp.Raw || blk["akamai_hash"] != fp.Hash {
+		t.Errorf("http2 = %v", blk)
+	}
+	if got := blk["settings"].([]any); len(got) != 3 {
+		t.Errorf("settings has %d entries, want 3", len(got))
+	}
+	// A zero-valued setting must survive the round trip.
+	last := blk["settings"].([]any)[2].(map[string]any)
+	if last["id"] != float64(2) || last["value"] != float64(0) {
+		t.Errorf("last setting = %v, want id 2 value 0", last)
+	}
+	if got := blk["pseudo_header_order"].([]any); len(got) != 4 || got[0] != "m" {
+		t.Errorf("pseudo_header_order = %v", got)
+	}
+}
+
+func TestV1HasNoHTTP2Block(t *testing.T) {
+	resp := New("8.8.8.8", "", one("MaxMind", full())).
+		WithHTTP2(&h2fp.Fingerprint{Hash: "x"})
+	m := decode(t, resp, 1)
+	if _, ok := m["http2"]; ok {
+		t.Error("v1 grew an http2 key")
 	}
 	if len(m) != 5 {
 		t.Errorf("v1 has %d keys, want 5", len(m))
