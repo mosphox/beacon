@@ -48,11 +48,7 @@ html {
 }
 
 body {
-  /* The page does not scroll; the deck inside it does. Two panels, each exactly one
-     viewport, so snapping has exactly two stops and the long readout scrolls inside its
-     own panel rather than being a third of a snap point. */
-  height: 100svh;
-  overflow: hidden;
+  min-height: 100svh;
   font-family: var(--font-outfit), sans-serif;
   background: linear-gradient(160deg, #0b0b1a 0%, #14142b 40%, #101a35 70%, #0d1b2a 100%);
   background-attachment: fixed;
@@ -87,6 +83,14 @@ body::before {
 }
 
 /* ---------------------------------------------------------------- deck */
+
+/* Only a page that actually has a deck stops the document scrolling. Scoping this to
+   the body's contents keeps ordinary pages — /lab, the error state — scrolling normally
+   instead of being silently frozen by a rule meant for the lookup page. */
+body:has(.deck) {
+  height: 100svh;
+  overflow: hidden;
+}
 
 .deck {
   position: relative;

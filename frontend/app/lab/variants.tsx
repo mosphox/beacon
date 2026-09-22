@@ -1,146 +1,226 @@
 'use client';
 
-import { useRef, useState } from 'react';
+import { animate } from 'motion/react';
+import { useEffect, useRef, useState } from 'react';
 
 const ADDRESS = '149.3.33.84';
 
 /**
- * Address renders the chosen hero treatment: a gradient clipped to the glyphs over a
- * blurred duplicate that does the glowing.
+ * useCopied returns a flag that goes true on click and clears itself.
  *
- * The address element itself must never be transformed, masked, or given a per-child
- * opacity — that puts it in its own painting context and the clipped gradient stops
- * compositing. Every hover below therefore works on the glow, on a sibling, or on paint
- * properties of the text (colour, background-position), never on its geometry.
+ * Nothing here writes to the clipboard except where the variant is specifically about
+ * the copy itself — these are visual studies and a lab page should not quietly replace
+ * what is on someone's clipboard while they browse it.
  */
-function Address({ className = '' }: { className?: string }) {
-  return (
-    <span className={`demo-ip ${className}`}>
-      <span className="demo-ip-glow" aria-hidden="true">
-        {ADDRESS}
-      </span>
-      <span className="demo-ip-text" aria-hidden="true">
-        {ADDRESS}
-      </span>
-      <span className="sr-only">{ADDRESS}</span>
-    </span>
-  );
-}
-
-/* --------------------------------------------------- A: the gradient travels */
-
-/**
- * The address holds still; its colour moves through it. The gradient repeats its
- * sequence so any window onto it reads the same, which means it can slide without the
- * resting state looking different from the chosen hero.
- */
-export function Travel() {
-  return (
-    <button type="button" className="demo-btn h-travel">
-      <Address />
-    </button>
-  );
-}
-
-/* ------------------------------------------------------- B: selection block */
-
-/** A terminal selection behind the glyphs — the shape of the thing you are about to copy. */
-export function Selection() {
-  return (
-    <button type="button" className="demo-btn h-select">
-      <Address />
-    </button>
-  );
-}
-
-/* ------------------------------------------------------------- C: brackets */
-
-/** Two brackets close in around the address, the way a prompt marks a value. */
-export function Brackets() {
-  return (
-    <button type="button" className="demo-btn h-brackets">
-      <span className="bracket left" aria-hidden="true">
-        [
-      </span>
-      <Address />
-      <span className="bracket right" aria-hidden="true">
-        ]
-      </span>
-    </button>
-  );
-}
-
-/* ----------------------------------------------------- D: chromatic split */
-
-/**
- * Two more glow copies, cyan and pink, drift apart under the address on hover — the
- * separation a CRT gives coloured light. The address stays perfectly still and sharp.
- */
-export function Chromatic() {
-  return (
-    <button type="button" className="demo-btn h-chroma">
-      <span className="demo-ip h-chroma-stack">
-        <span className="chroma cy" aria-hidden="true">
-          {ADDRESS}
-        </span>
-        <span className="chroma pk" aria-hidden="true">
-          {ADDRESS}
-        </span>
-        <span className="demo-ip-text" aria-hidden="true">
-          {ADDRESS}
-        </span>
-        <span className="sr-only">{ADDRESS}</span>
-      </span>
-    </button>
-  );
-}
-
-/* ----------------------------------------------------------- E: label says */
-
-/**
- * Nothing on the address at all. The label above it changes from naming the value to
- * naming the action, which is the only new information a hover actually carries.
- */
-export function LabelSays() {
-  return (
-    <button type="button" className="demo-btn h-label">
-      <span className="demo-label">
-        <span className="rest">Your IP address</span>
-        <span className="hover">Click to copy</span>
-      </span>
-      <Address />
-    </button>
-  );
-}
-
-/* ------------------------------------------------------------ F: real copy */
-
-/**
- * The interaction itself as the feedback: no hover state, but clicking swaps the address
- * for a confirmation in place, then swaps back.
- */
-export function InPlace() {
+function useCopied(ms = 1600) {
   const [copied, setCopied] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  function onClick() {
-    navigator.clipboard?.writeText(ADDRESS).catch(() => {});
+  useEffect(() => () => void (timer.current && clearTimeout(timer.current)), []);
+
+  function fire() {
     setCopied(true);
     if (timer.current) clearTimeout(timer.current);
-    timer.current = setTimeout(() => setCopied(false), 1400);
+    timer.current = setTimeout(() => setCopied(false), ms);
+  }
+  return [copied, fire] as const;
+}
+
+/**
+ * Address is the hero treatment: a gradient clipped to the glyphs over a blurred
+ * duplicate that glows, with the brackets that answer a hover.
+ *
+ * The address element can never be transformed, masked, or given a per-child opacity —
+ * that puts it in its own painting context and the clipped gradient stops compositing.
+ * Every click response below therefore works on the glow, on a sibling, or on paint
+ * properties of the text.
+ */
+function Address({ text = ADDRESS }: { text?: string }) {
+  return (
+    <>
+      <span className="ip-bracket left" aria-hidden="true">
+        [
+      </span>
+      <span className="demo-stack">
+        <span className="demo-glow" aria-hidden="true">
+          {text}
+        </span>
+        <span className="demo-text" aria-hidden="true">
+          {text}
+        </span>
+      </span>
+      <span className="ip-bracket right" aria-hidden="true">
+        ]
+      </span>
+      <span className="sr-only">{text}</span>
+    </>
+  );
+}
+
+/* ============================================================ click responses */
+
+/** A ring expands out of the address and fades, the way a tap leaves a mark. */
+export function Ripple() {
+  const [on, fire] = useCopied(700);
+  return (
+    <button type="button" className={`demo-btn c-ripple ${on ? 'go' : ''}`} onClick={fire}>
+      <span className="ring" aria-hidden="true" />
+      <Address />
+    </button>
+  );
+}
+
+/** The glow flares white-hot for a moment, then settles back. */
+export function Flare() {
+  const ref = useRef<HTMLButtonElement>(null);
+
+  function fire() {
+    const glow = ref.current?.querySelector('.demo-glow');
+    if (!glow) return;
+    animate(
+      glow,
+      { opacity: [0.55, 1, 0.55], filter: ['blur(22px)', 'blur(10px)', 'blur(22px)'] },
+      { duration: 0.7, ease: [0.2, 0, 0, 1] },
+    );
   }
 
   return (
-    <button type="button" className="demo-btn h-inplace" onClick={onClick}>
-      <span className={`demo-ip ${copied ? 'is-copied' : ''}`}>
-        <span className="demo-ip-glow" aria-hidden="true">
-          {ADDRESS}
-        </span>
-        <span className="demo-ip-text" aria-hidden="true">
-          {copied ? 'copied' : ADDRESS}
-        </span>
-        <span className="sr-only">{ADDRESS}</span>
-      </span>
+    <button type="button" className="demo-btn c-flare" ref={ref} onClick={fire}>
+      <Address />
     </button>
+  );
+}
+
+/** The brackets snap shut against the address and spring back. */
+export function Snap() {
+  const [on, fire] = useCopied(420);
+  return (
+    <button type="button" className={`demo-btn c-snap ${on ? 'go' : ''}`} onClick={fire}>
+      <Address />
+    </button>
+  );
+}
+
+/** The address itself becomes the confirmation, then returns. */
+export function InPlace() {
+  const [on, fire] = useCopied(1300);
+  return (
+    <button type="button" className={`demo-btn c-inplace ${on ? 'go' : ''}`} onClick={fire}>
+      <Address text={on ? 'copied' : ADDRESS} />
+    </button>
+  );
+}
+
+/** The gradient washes once through the glyphs, left to right. */
+export function Wash() {
+  const [on, fire] = useCopied(900);
+  return (
+    <button type="button" className={`demo-btn c-wash ${on ? 'go' : ''}`} onClick={fire}>
+      <Address />
+    </button>
+  );
+}
+
+/* ============================================================== notifications */
+
+/* Each variant owns its own state. A render prop would have to cross the server/client
+   boundary from the page, and functions cannot be passed to a Client Component. */
+
+function Trigger({ onFire }: { onFire: () => void }) {
+  return (
+    <button type="button" className="demo-btn" onClick={onFire}>
+      <Address />
+    </button>
+  );
+}
+
+/** What ships today: a pill at the top of the window. */
+export function TopPill() {
+  const [open, fire] = useCopied(1900);
+  return (
+    <div className="note-stage">
+      {open ? (
+        <span className="note note-pill" aria-live="polite">
+          Copied to clipboard
+        </span>
+      ) : null}
+      <Trigger onFire={fire} />
+    </div>
+  );
+}
+
+/** A line under the address, in its own space, so nothing overlaps or shifts. */
+export function UnderLine() {
+  const [open, fire] = useCopied(1900);
+  return (
+    <div className="note-stage column">
+      <Trigger onFire={fire} />
+      <span className={`note note-under ${open ? 'open' : ''}`} aria-live="polite">
+        Copied
+      </span>
+    </div>
+  );
+}
+
+/** The label above stops naming the value and reports what happened. */
+export function LabelSwap() {
+  const [open, fire] = useCopied(1900);
+  return (
+    <div className="note-stage column">
+      <span className="note-label" aria-live="polite">
+        <span className={open ? 'off' : ''}>Your IP address</span>
+        <span className={open ? 'on' : ''}>Copied to clipboard</span>
+      </span>
+      <Trigger onFire={fire} />
+    </div>
+  );
+}
+
+/** A tick slides out beside the address and holds, then leaves. */
+export function Tick() {
+  const [open, fire] = useCopied(1900);
+  return (
+    <div className="note-stage">
+      <Trigger onFire={fire} />
+      <span className={`note note-tick ${open ? 'open' : ''}`} aria-live="polite">
+        <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">
+          <path
+            d="M4 9.5 7.5 13 14 5.5"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+        Copied
+      </span>
+    </div>
+  );
+}
+
+/** A bar across the bottom, the way a terminal reports status. */
+export function StatusBar() {
+  const [open, fire] = useCopied(1900);
+  return (
+    <div className="note-stage">
+      <Trigger onFire={fire} />
+      <span className={`note note-bar ${open ? 'open' : ''}`} aria-live="polite">
+        <span className="dot" aria-hidden="true" />
+        {ADDRESS} copied to clipboard
+      </span>
+    </div>
+  );
+}
+
+/** Nothing announced. The address confirms it and the moment passes. */
+export function Silent() {
+  const [open, fire] = useCopied(1300);
+  return (
+    <div className="note-stage">
+      <button type="button" className={`demo-btn c-inplace ${open ? 'go' : ''}`} onClick={fire}>
+        <Address text={open ? 'copied' : ADDRESS} />
+      </button>
+    </div>
   );
 }

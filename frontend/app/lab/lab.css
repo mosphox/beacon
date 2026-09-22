@@ -10,13 +10,13 @@
     radial-gradient(ellipse 60% 50% at 20% 80%, rgb(16 185 129 / 0.1) 0%, transparent 60%),
     linear-gradient(160deg, #0b0b1a 0%, #14142b 40%, #101a35 70%, #0d1b2a 100%);
   background-attachment: fixed;
-  padding-bottom: 96px;
+  padding-bottom: 120px;
 }
 
 .lab-head {
   max-width: 720px;
   margin: 0 auto;
-  padding: 64px var(--gutter) 32px;
+  padding: 64px var(--gutter) 24px;
 }
 
 .lab-head h1 {
@@ -32,20 +32,42 @@
   max-width: 64ch;
 }
 
+.lab-group {
+  max-width: 720px;
+  margin: 48px auto 0;
+  padding: 0 var(--gutter);
+}
+
+.lab-group h2 {
+  font-size: 1.125rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--rule-strong);
+}
+
+.lab-group > p {
+  margin-top: 12px;
+  font-size: 0.875rem;
+  font-weight: 300;
+  color: var(--ink-2);
+  max-width: 68ch;
+}
+
 .lab-slide {
   max-width: 720px;
   margin: 0 auto;
-  padding: 40px var(--gutter);
+  padding: 32px var(--gutter);
   border-top: 1px solid var(--rule);
 }
 
 .lab-stage {
   display: grid;
   place-items: center;
-  min-height: 190px;
+  min-height: 170px;
 }
 
-.lab-caption h2 {
+.lab-caption h3 {
   font-size: 0.9375rem;
   font-weight: 600;
 }
@@ -73,12 +95,17 @@
   position: relative;
   display: inline-flex;
   align-items: center;
-  gap: 12px;
+  gap: 0.18em;
   border: 0;
   background: none;
   cursor: pointer;
   padding: 8px;
+  user-select: none;
   font-family: var(--font-jetbrains), monospace;
+  font-size: clamp(1.75rem, 6vw, 3rem);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
 }
 
 .demo-btn:focus-visible {
@@ -87,43 +114,114 @@
   border-radius: 4px;
 }
 
-.demo-ip {
-  position: relative;
+.demo-stack {
   display: inline-grid;
   place-items: center;
-  font-family: var(--font-jetbrains), monospace;
-  font-weight: 700;
-  font-size: clamp(1.75rem, 6vw, 3.25rem);
-  line-height: 1.1;
-  letter-spacing: -0.02em;
 }
 
-.demo-ip-text,
-.demo-ip-glow,
-.chroma {
+.demo-text,
+.demo-glow {
   grid-area: 1 / 1;
   white-space: nowrap;
 }
 
-.demo-ip-text {
+.demo-text {
   background-image: linear-gradient(100deg, #67e8f9, #a78bfa 45%, #f0abfc 80%);
   background-clip: text;
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
 }
 
-.demo-ip-glow {
+.demo-glow {
   color: #a78bfa;
   filter: blur(22px);
   opacity: 0.55;
   pointer-events: none;
 }
 
-/* --------------------------------------------------- A: the gradient travels */
+.ip-bracket {
+  font-weight: 300;
+  color: var(--accent);
+  opacity: 0;
+  transform: translateX(0.18em);
+  transition:
+    opacity 180ms ease-out,
+    transform 180ms cubic-bezier(0.2, 0, 0, 1);
+}
 
-/* The colour sequence repeats, so the window onto it at rest reads exactly like the
-   chosen hero — and sliding a full period lands somewhere identical. */
-.h-travel .demo-ip-text {
+.ip-bracket.right {
+  transform: translateX(-0.18em);
+}
+
+.demo-btn:hover .ip-bracket,
+.demo-btn:focus-visible .ip-bracket {
+  opacity: 0.8;
+  transform: none;
+}
+
+/* ========================================================= click responses */
+
+/* A — ripple */
+.c-ripple .ring {
+  position: absolute;
+  inset: 0;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.c-ripple.go .ring {
+  animation: ring 640ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+@keyframes ring {
+  from {
+    opacity: 0.7;
+    transform: scale(0.96);
+  }
+  to {
+    opacity: 0;
+    transform: scale(1.22);
+  }
+}
+
+/* C — brackets snap shut */
+.c-snap .ip-bracket {
+  opacity: 0.8;
+  transform: none;
+}
+
+.c-snap.go .ip-bracket {
+  transition: transform 180ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+.c-snap.go .ip-bracket.left {
+  transform: translateX(0.3em);
+}
+
+.c-snap.go .ip-bracket.right {
+  transform: translateX(-0.3em);
+}
+
+/* D — the address becomes the confirmation */
+.c-inplace .demo-text,
+.c-inplace .demo-glow {
+  transition: none;
+}
+
+.c-inplace.go .demo-text {
+  background-image: linear-gradient(100deg, #34d399, #6ee7b7);
+  background-clip: text;
+  -webkit-background-clip: text;
+}
+
+.c-inplace.go .demo-glow {
+  color: #34d399;
+}
+
+/* E — one wash of colour through the glyphs */
+.c-wash .demo-text {
   background-image: linear-gradient(
     100deg,
     #67e8f9 0%,
@@ -135,103 +233,82 @@
   );
   background-size: 200% 100%;
   background-position: 0% center;
-  transition: background-position 700ms cubic-bezier(0.2, 0, 0, 1);
 }
 
-.h-travel:hover .demo-ip-text,
-.h-travel:focus-visible .demo-ip-text {
+.c-wash.go .demo-text {
+  transition: background-position 800ms cubic-bezier(0.2, 0, 0, 1);
   background-position: 100% center;
 }
 
-/* ------------------------------------------------------- B: selection block */
+/* =========================================================== notifications */
 
-.h-select .demo-ip::before {
-  content: '';
-  position: absolute;
-  inset: -2px -12px;
-  border-radius: 3px;
-  background: rgb(167 139 250 / 0);
-  transition: background-color 160ms ease-out;
+.note-stage {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 100%;
+  min-height: 170px;
 }
 
-.h-select:hover .demo-ip::before,
-.h-select:focus-visible .demo-ip::before {
-  background: rgb(167 139 250 / 0.18);
+.note-stage.column {
+  gap: 12px;
+  grid-auto-flow: row;
 }
 
-/* ------------------------------------------------------------- C: brackets */
-
-.h-brackets .bracket {
-  font-size: clamp(1.75rem, 6vw, 3.25rem);
+.note {
+  font-family: var(--font-outfit), sans-serif;
+  font-size: 0.875rem;
   font-weight: 300;
-  color: var(--accent);
+  letter-spacing: 0;
+}
+
+/* 1 — the pill that ships today */
+.note-pill {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgb(16 185 129 / 0.15);
+  backdrop-filter: blur(12px) saturate(180%);
+  -webkit-backdrop-filter: blur(12px) saturate(180%);
+  color: var(--ink);
+  padding: 12px 24px;
+  border-radius: 2rem;
+  border: 1px solid rgb(255 255 255 / 0.15);
+  box-shadow: 0 4px 24px rgb(0 0 0 / 0.15);
+  animation: toast 1.9s ease-in-out forwards;
+}
+
+@keyframes toast {
+  0% {
+    opacity: 0;
+  }
+  10%,
+  85% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+/* 2 — a line under the address, holding its own space */
+.note-under {
+  color: var(--ok);
   opacity: 0;
+  transform: translateY(-4px);
   transition:
     opacity 180ms ease-out,
     transform 180ms cubic-bezier(0.2, 0, 0, 1);
 }
 
-.h-brackets .bracket.left {
-  transform: translateX(10px);
-}
-
-.h-brackets .bracket.right {
-  transform: translateX(-10px);
-}
-
-.h-brackets:hover .bracket,
-.h-brackets:focus-visible .bracket {
-  opacity: 0.8;
+.note-under.open {
+  opacity: 1;
   transform: none;
 }
 
-/* ----------------------------------------------------- D: chromatic split */
-
-.h-chroma-stack {
-  isolation: isolate;
-}
-
-.chroma {
-  pointer-events: none;
-  opacity: 0;
-  filter: blur(6px);
-  transition:
-    opacity 220ms ease-out,
-    transform 220ms cubic-bezier(0.2, 0, 0, 1);
-}
-
-.chroma.cy {
-  color: #67e8f9;
-}
-
-.chroma.pk {
-  color: #f0abfc;
-}
-
-.h-chroma:hover .chroma,
-.h-chroma:focus-visible .chroma {
-  opacity: 0.75;
-}
-
-.h-chroma:hover .chroma.cy,
-.h-chroma:focus-visible .chroma.cy {
-  transform: translateX(-7px);
-}
-
-.h-chroma:hover .chroma.pk,
-.h-chroma:focus-visible .chroma.pk {
-  transform: translateX(7px);
-}
-
-/* ----------------------------------------------------------- E: label says */
-
-.h-label {
-  flex-direction: column;
-  gap: 10px;
-}
-
-.demo-label {
-  position: relative;
+/* 3 — the label reports it */
+.note-label {
   display: grid;
   font-family: var(--font-outfit), sans-serif;
   font-size: 0.8125rem;
@@ -241,50 +318,94 @@
   color: var(--ink-3);
 }
 
-.demo-label .rest,
-.demo-label .hover {
+.note-label span {
   grid-area: 1 / 1;
   transition: opacity 160ms ease-out;
 }
 
-.demo-label .hover {
+.note-label span:last-child {
   opacity: 0;
-  color: var(--accent);
+  color: var(--ok);
 }
 
-.h-label:hover .demo-label .rest,
-.h-label:focus-visible .demo-label .rest {
+.note-label span.off {
   opacity: 0;
 }
 
-.h-label:hover .demo-label .hover,
-.h-label:focus-visible .demo-label .hover {
+.note-label span.on {
   opacity: 1;
 }
 
-/* ------------------------------------------------------------ F: in place */
-
-.h-inplace .demo-ip-text {
-  transition: opacity 120ms ease-out;
+/* 4 — a tick beside the address */
+.note-tick {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ok);
+  white-space: nowrap;
+  opacity: 0;
+  transform: translate(calc(-50% + 40px), -50%);
+  transition:
+    opacity 200ms ease-out,
+    transform 200ms cubic-bezier(0.2, 0, 0, 1);
+  pointer-events: none;
 }
 
-.h-inplace .demo-ip.is-copied .demo-ip-text {
-  background-image: linear-gradient(100deg, #34d399, #6ee7b7);
-  background-clip: text;
-  -webkit-background-clip: text;
+.note-tick.open {
+  opacity: 1;
+  /* Clears the address rather than sitting on it; the offset is deliberate. */
+  transform: translate(calc(-50% + 240px), -50%);
 }
 
-.h-inplace .demo-ip.is-copied .demo-ip-glow {
-  color: #34d399;
+/* 5 — a status bar, the way a terminal reports */
+.note-bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  background: rgb(0 0 0 / 0.35);
+  border-top: 1px solid var(--rule-strong);
+  font-family: var(--font-jetbrains), monospace;
+  font-size: 0.75rem;
+  color: var(--ink-2);
+  opacity: 0;
+  transform: translateY(100%);
+  transition:
+    opacity 200ms ease-out,
+    transform 200ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+.note-bar.open {
+  opacity: 1;
+  transform: none;
+}
+
+.note-bar .dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--ok);
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .h-travel .demo-ip-text,
-  .h-brackets .bracket,
-  .chroma,
-  .demo-label .rest,
-  .demo-label .hover,
-  .h-select .demo-ip::before {
+  .c-ripple.go .ring,
+  .note-pill {
+    animation: none;
+  }
+
+  .ip-bracket,
+  .c-wash.go .demo-text,
+  .note-under,
+  .note-label span,
+  .note-tick,
+  .note-bar {
     transition: none;
   }
 }
