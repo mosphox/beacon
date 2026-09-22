@@ -253,16 +253,16 @@ button.ip:focus-visible .ip-bracket {
 /* On click the address gives a little under the press while the brackets bite in.
 
    It recedes under a perspective rather than simply scaling: the far edges converge and
-   the whole line reads as moving away from you, not as changing size. 36px of depth at
-   this perspective is about 4%, which is small enough to feel like give. A flat scale of
-   the same magnitude was tried first and read as the number resizing; the foreshortening
-   is the whole difference.
+   the whole line reads as moving away from you, not as changing size. 18px of depth at
+   this perspective is 900/918, a hair under 2% — barely a size change at all, which is
+   the point. A flat scale read as the number resizing; the foreshortening is what makes
+   the same magnitude read as give instead.
 
    Safe here and only here: a transform on an ANCESTOR of the clipped gradient composites
    fine, in 3D as well as 2D, while one on .ip-text itself destroys it. See the note above
    .ip-text. */
 button.ip.snap {
-  transform: perspective(900px) translateZ(-36px);
+  transform: perspective(900px) translateZ(-18px);
   transition: transform 55ms cubic-bezier(0.3, 0, 0, 1);
 }
 

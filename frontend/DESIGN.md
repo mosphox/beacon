@@ -149,12 +149,13 @@ hover reveal — an acknowledgement of a press is not something anyone should wa
 It fires on the click rather than on the clipboard promise, so the feedback tracks the
 press and not the round trip.
 
-The address gives under that press at the same moment, receding 36px under a 900px
-perspective — about 4%. It **recedes** rather than scales: the far edges converge and the
-line reads as moving away from you instead of changing size. A flat scale of the same
-magnitude was built first and rejected for exactly that reason; the foreshortening is the
-whole difference. Both ends of the transition name the same transform functions, so they
-interpolate as a list rather than as decomposed matrices.
+The address gives under that press at the same moment, receding 18px under a 900px
+perspective — 900/918, a hair under 2%. It **recedes** rather than scales: the far edges
+converge and the line reads as moving away from you instead of changing size. A flat
+scale was built first and rejected for exactly that reason; the foreshortening is what
+lets so small a movement register as give at all. Both ends of the transition name the
+same transform functions, so they interpolate as a list rather than as decomposed
+matrices.
 
 In is 55ms and out is 180ms. The asymmetry is the point — a press should feel like a
 release, not a round trip — and it is why the address settles a beat after the brackets
