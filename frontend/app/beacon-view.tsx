@@ -40,7 +40,7 @@ export default function BeaconView() {
   const [attempt, setAttempt] = useState(0);
   const [copied, setCopied] = useState(0);
   const [showAll, setShowAll] = useState<Record<string, boolean>>({});
-  const readoutRef = useRef<HTMLDivElement>(null);
+  const readoutRef = useRef<HTMLElement>(null);
   const addressRef = useRef<HTMLButtonElement>(null);
   const reducedMotion = useReducedMotion();
 
@@ -137,8 +137,8 @@ export default function BeaconView() {
         Skip to connection details
       </a>
 
-      <main>
-        <section className="hero">
+      <main className="deck">
+        <section className="panel hero">
           <div
             className="hero-inner"
             /* Genuinely runtime-computed: the whole hero is sized from the address's
@@ -210,13 +210,15 @@ export default function BeaconView() {
         </section>
 
         {!loading ? (
-          <div className="readout" id="readout" ref={readoutRef}>
-            <Connection data={data} />
-            <LocationSection data={data} />
-            <NetworkSection data={data} />
-            <TlsSection data={data} showAll={showAll} onExpand={expand} />
-            <Http2Section data={data} />
-          </div>
+          <section className="panel readout-panel" ref={readoutRef}>
+            <div className="readout" id="readout">
+              <Connection data={data} />
+              <LocationSection data={data} />
+              <NetworkSection data={data} />
+              <TlsSection data={data} showAll={showAll} onExpand={expand} />
+              <Http2Section data={data} />
+            </div>
+          </section>
         ) : null}
       </main>
     </>

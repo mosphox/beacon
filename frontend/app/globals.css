@@ -44,11 +44,15 @@
 }
 
 html {
-  scroll-behavior: smooth;
+  height: 100%;
 }
 
 body {
-  min-height: 100svh;
+  /* The page does not scroll; the deck inside it does. Two panels, each exactly one
+     viewport, so snapping has exactly two stops and the long readout scrolls inside its
+     own panel rather than being a third of a snap point. */
+  height: 100svh;
+  overflow: hidden;
   font-family: var(--font-outfit), sans-serif;
   background: linear-gradient(160deg, #0b0b1a 0%, #14142b 40%, #101a35 70%, #0d1b2a 100%);
   background-attachment: fixed;
@@ -82,17 +86,43 @@ body::before {
   border-radius: 2px;
 }
 
+/* ---------------------------------------------------------------- deck */
+
+.deck {
+  position: relative;
+  z-index: 1;
+  height: 100svh;
+  overflow-y: scroll;
+  overflow-x: hidden;
+  scroll-snap-type: y mandatory;
+  scroll-behavior: smooth;
+  /* The hero's own background shows through; the deck only scrolls. */
+  scrollbar-width: none;
+}
+
+.deck::-webkit-scrollbar {
+  display: none;
+}
+
+.panel {
+  height: 100svh;
+  scroll-snap-align: start;
+  /* Always come to rest on a panel rather than skipping past one on a fast flick. */
+  scroll-snap-stop: always;
+}
+
 /* ----------------------------------------------------------------- hero */
 
 .hero {
   position: relative;
   z-index: 1;
-  min-height: 100svh;
   display: grid;
   place-items: center;
   padding: 48px max(var(--gutter), env(safe-area-inset-left)) 48px
     max(var(--gutter), env(safe-area-inset-right));
   text-align: center;
+  display: grid;
+  place-items: center;
 }
 
 /* The address is the page's heading; the h1 carries no style of its own. */
@@ -294,12 +324,21 @@ button.ip {
 
 /* ------------------------------------------------------------- readout */
 
+/* The second panel is one viewport tall and scrolls inside itself. Reaching either end
+   chains back out to the deck, so a continued scroll carries you to the other panel. */
+.readout-panel {
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: thin;
+  scrollbar-color: var(--rule-strong) transparent;
+}
+
 .readout {
   position: relative;
   z-index: 1;
   max-width: var(--measure);
   margin: 0 auto;
-  padding: 0 var(--gutter) 96px;
+  padding: 32px var(--gutter) 96px;
 }
 
 .section + .section {
@@ -650,7 +689,7 @@ button.ip {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  html {
+  .deck {
     scroll-behavior: auto;
   }
 

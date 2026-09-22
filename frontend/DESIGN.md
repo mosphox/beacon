@@ -13,9 +13,15 @@ every screen is **legible under scrutiny** — someone will copy a hash out of t
 paste it into a threat-intel search. The one that must never be true is **decorative**: no
 element exists unless it carries data or the structure of data.
 
-The page has two movements. The first viewport is the answer to the question people came
-with — their IP, at size, and nothing competing with it. Everything else is below the fold
-for people who want it, and it is dense on purpose.
+The page is two screens, not one long one. The first is the answer people came for — their
+IP, at size, with nothing competing — and it does not scroll. The second holds everything
+else and scrolls inside itself. The page scrolls between the two and snaps, so each is
+arrived at whole rather than half-glimpsed.
+
+Mechanically that is a deck with `scroll-snap-type: y mandatory` and exactly two panels of
+one viewport each. The readout's own scrolling happens inside its panel, which is why
+there are only ever two snap points — a taller second section would make mandatory
+snapping fight every scroll through it.
 
 Not this: identical rounded cards with the same shadow under each, a tracked-out ALL-CAPS
 label above every section, a fade-and-slide-up as each section scrolls into view, `→`
