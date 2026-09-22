@@ -31,14 +31,26 @@ screen.
 
 **The step is earned, not triggered.** What moves you is a *rate*: the script sums the
 scrolling done in the **last half second**, continuously, and plays the change once that
-sum passes **700px** — 1400px a second. Input older than the window stops counting, so the
+sum passes **1400px** — 2800px a second. Input older than the window stops counting, so the
 sum falls on its own and a slow drift never arrives however long it is kept up. It has to
-be one committed push. Touch counts for 1.6× its raw travel, since a finger moves one
-pixel per pixel where a wheel notch is worth a hundred; that puts a phone at roughly half
-a screen.
+be one committed flick.
 
 The half-second window does two jobs. It sets that rate, and it means the gauge has almost
 nothing left to drain by the time you have let go.
+
+Touch is measured against the same threshold but counts for `PULL_THRESHOLD / 440` times
+its raw travel, so a phone is always asking for about half a screen. The gain is tied to
+the threshold rather than fixed on purpose: a finger moves one pixel per pixel where a
+wheel notch is worth a hundred, so raising the threshold to make a trackpad work harder
+would otherwise ask a phone for more than a whole screen inside the window, which is not a
+hard gesture but an impossible one.
+
+**Known, and deliberate: a notched mouse wheel cannot reach this.** A fast spin is about
+18 notches a second, or 1800px, which fills the gauge to two thirds and stops there. At
+2800px/s the gesture is a trackpad flick or a touch swipe. Wheel users are not stranded —
+the scroll cue, the skip button, and the arrow, page and Home keys all cross without
+having to earn it — but they will not get there by scrolling. `PULL_THRESHOLD` is the one
+number to change if that trade stops being worth it.
 
 It listens in the two places a change is what the scrolling could mean: anywhere on the
 hero, and on the readout only when it is already at its own top.

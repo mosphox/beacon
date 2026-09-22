@@ -304,7 +304,7 @@ function HeroPlace({ data }: { data: BeaconResponse }) {
  * How much scrolling, inside the last second, moves you to the other view.
  * Roughly six notches of a mouse wheel, or one decisive trackpad swipe.
  */
-const PULL_THRESHOLD = 700;
+const PULL_THRESHOLD = 1400;
 
 /**
  * The window the pull is measured over. Older input has simply stopped counting.
@@ -326,19 +326,21 @@ const PULL_WINDOW = 500;
  * collapsing between notches on a wheel.
  */
 const RELEASE_GAPS = 2.2;
-const RELEASE_MIN = 90;
+const RELEASE_MIN = 45;
 const RELEASE_MAX = 220;
 
-/** Time constants for the gauge chasing the measurement: quick up, unhurried down. */
+/** Time constants for the gauge chasing the measurement: quick up, quick down. */
 const RISE_TAU = 50;
-const FALL_TAU = 90;
+const FALL_TAU = 45;
 
 /**
  * Touch counts for more than its raw travel. A finger moves one pixel per pixel, while a
- * wheel notch is worth a hundred, so at the same threshold a phone would need most of the
- * screen swiped inside a second. This puts it at roughly half a screen.
+ * wheel notch is worth a hundred, so at the raw threshold a phone would need more than a
+ * whole screen swiped inside the window — not a hard gesture, an impossible one. The gain
+ * is tied to the threshold rather than fixed, so raising one to make a trackpad work
+ * harder does not quietly take the page away from anyone on a phone. Half a screen.
  */
-const TOUCH_GAIN = 1.6;
+const TOUCH_GAIN = PULL_THRESHOLD / 440;
 
 /** How long the view change takes; must match the transition in globals.css. */
 const SWAP_MS = 720;
