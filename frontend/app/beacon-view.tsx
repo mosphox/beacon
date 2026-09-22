@@ -44,7 +44,9 @@ export default function BeaconView() {
   const [snap, setSnap] = useState(false);
   const snapTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [showAll, setShowAll] = useState<Record<string, boolean>>({});
-  const deckRef = useRef<HTMLElement>(null);
+  const [view, setView] = useState<View>('hero');
+  const stageRef = useRef<HTMLElement>(null);
+  const heroRef = useRef<HTMLElement>(null);
   const readoutRef = useRef<HTMLElement>(null);
   const addressRef = useRef<HTMLButtonElement>(null);
   const reducedMotion = useReducedMotion();
@@ -98,7 +100,23 @@ export default function BeaconView() {
 
   useEffect(() => () => void (snapTimer.current && clearTimeout(snapTimer.current)), []);
 
-  useFirmDeck(deckRef, readoutRef, status === 'ready' && data !== null, reducedMotion);
+  usePull(stageRef, readoutRef, view, setView, status === 'ready' && data !== null);
+
+  // The view that leaves becomes inert, so anything focused inside it would be orphaned
+  // and focus would fall back to the document. Move it into the view that arrived instead,
+  // whether the change came from a gesture, a key or a button.
+  const firstView = useRef(true);
+  useEffect(() => {
+    if (firstView.current) {
+      firstView.current = false;
+      return;
+    }
+    // The view container, not the control inside it. Focusing the address would paint a
+    // ring around the hero for someone who only scrolled, and landing on the container
+    // puts the tab sequence at the start of what is now on screen.
+    const target = view === 'readout' ? readoutRef.current : heroRef.current;
+    target?.focus({ preventScroll: true });
+  }, [view]);
 
   function copy() {
     if (!data?.ip || !navigator.clipboard) return;
@@ -151,12 +169,19 @@ export default function BeaconView() {
         </output>
       ) : null}
 
-      <a className="skip" href="#readout">
+      {/* A button, not a link: there is no longer a place to navigate to. The readout
+          is a view this switches to, and the hidden one is inert, so an in-page anchor
+          would point at something no one can reach. */}
+      <button type="button" className="skip" onClick={() => setView('readout')}>
         Skip to connection details
-      </a>
+      </button>
 
-      <main className="deck" ref={deckRef}>
-        <section className="panel hero">
+      <main className="stage" ref={stageRef} data-view={view}>
+        {/* The gauge for the pull. It grows from the edge you are pulling toward, so the
+            threshold is something you can see coming rather than a cliff. */}
+        <span className="pull-gauge" aria-hidden="true" />
+
+        <section className="view hero" ref={heroRef} tabIndex={-1} inert={view !== 'hero'}>
           <div
             className="hero-inner"
             /* Genuinely runtime-computed: the whole hero is sized from the address's
@@ -210,7 +235,7 @@ export default function BeaconView() {
             <button
               type="button"
               className="scroll-cue"
-              onClick={() => readoutRef.current?.scrollIntoView({ block: 'start' })}
+              onClick={() => setView('readout')}
               aria-label="Scroll to connection details"
             >
               <svg width="20" height="20" viewBox="0 0 12 12" aria-hidden="true">
@@ -228,7 +253,12 @@ export default function BeaconView() {
         </section>
 
         {!loading ? (
-          <section className="panel readout-panel" ref={readoutRef}>
+          <section
+            className="view readout-panel"
+            ref={readoutRef}
+            tabIndex={-1}
+            inert={view !== 'readout'}
+          >
             <div className="readout" id="readout">
               <Connection data={data} />
               <LocationSection data={data} />
@@ -268,118 +298,204 @@ function HeroPlace({ data }: { data: BeaconResponse }) {
   );
 }
 
-/* ------------------------------------------------------------- deck gesture */
+/* ---------------------------------------------------------------- the pull */
 
-/** Fraction of the wheel's travel the deck actually moves. */
-const DAMP = 0.45;
-/** How far into the next panel you have to push before it takes over. */
-const COMMIT = 0.35;
-/** Together: about six notches of a mouse wheel, or one decisive trackpad swipe. */
+/**
+ * How much scrolling, inside the last second, moves you to the other view.
+ * Roughly six notches of a mouse wheel, or one decisive trackpad swipe.
+ */
+const PULL_THRESHOLD = 600;
 
-/** Stop accumulating if the wheel goes quiet for this long, and return where you came from. */
-const IDLE_MS = 260;
+/** The window the pull is measured over. Older input has simply stopped counting. */
+const PULL_WINDOW = 1000;
 
-/** Roughly what a line and a page are worth, for wheels that report in them. */
+/**
+ * Touch counts for more than its raw travel. A finger moves one pixel per pixel, while a
+ * wheel notch is worth a hundred, so at the same threshold a phone would need most of the
+ * screen swiped inside a second. This puts it at roughly half a screen.
+ */
+const TOUCH_GAIN = 1.6;
+
+/** How long the view change takes; must match the transition in globals.css. */
+const SWAP_MS = 520;
+
+/** A line and a page, for wheels that report their delta in them rather than pixels. */
 function wheelPixels(e: WheelEvent, page: number): number {
   if (e.deltaMode === 1) return e.deltaY * 40;
   if (e.deltaMode === 2) return e.deltaY * page;
   return e.deltaY;
 }
 
+type View = 'hero' | 'readout';
+
 /**
- * Makes the step between the two panels cost something.
+ * Switching views is a gesture, not a scroll.
  *
- * Mandatory scroll snapping commits on the smallest flick — one notch of a wheel and the
- * page has changed under you. This takes the wheel over at the two places where a panel
- * change could happen and moves the deck at a fraction of the wheel's travel, so it is
- * visibly resisting rather than ignoring you, and hands back to the snap only once you
- * have pushed it past COMMIT. Stop short and it returns.
+ * There is no scroll position between the two views to be in the middle of — the hero
+ * does not scroll at all, and the readout scrolls normally within itself. What moves you
+ * between them is a *rate*: the script sums the scrolling you did in the last second,
+ * continuously, and once that sum passes PULL_THRESHOLD it plays the change. Input older
+ * than the window stops counting, so the sum falls on its own and a slow drift never
+ * arrives. It has to be one committed push.
  *
- * Touch and keyboard are deliberately left alone. A drag and an arrow key are already
- * deliberate acts; it is the flick that was too cheap.
+ * The pull is published as `--pull`, 0 to 1, for the gauge to draw. Feedback is the whole
+ * reason to measure a rate rather than a total: a threshold you cannot see coming is
+ * indistinguishable from a page that has stopped responding.
+ *
+ * It listens in the two places a change is what the scrolling could mean: anywhere on the
+ * hero, and on the readout only when it is already at its own top.
  */
-function useFirmDeck(
-  deckRef: React.RefObject<HTMLElement | null>,
+function usePull(
+  stageRef: React.RefObject<HTMLElement | null>,
   readoutRef: React.RefObject<HTMLElement | null>,
+  view: View,
+  setView: (v: View) => void,
   enabled: boolean,
-  reducedMotion: boolean | null,
 ) {
+  // The listeners outlive any one view, so they read it from a ref rather than being
+  // torn down and re-registered every time it changes.
+  const viewRef = useRef(view);
   useEffect(() => {
-    const deck = deckRef.current;
-    if (!deck || !enabled) return;
+    viewRef.current = view;
+  }, [view]);
 
-    let active = false;
-    let locked = false;
-    let from = 0;
-    let offset = 0;
-    let idle: ReturnType<typeof setTimeout> | null = null;
-    let unlock: ReturnType<typeof setTimeout> | null = null;
+  useEffect(() => {
+    const stage = stageRef.current;
+    if (!stage || !enabled) return;
 
-    const settle = (to: number, committed: boolean) => {
-      active = false;
-      offset = 0;
-      locked = true;
-      if (idle) clearTimeout(idle);
+    /** Recent input, newest last, as [timestamp, pixels]. */
+    let samples: [number, number][] = [];
+    let raf = 0;
+    let swapping = false;
+    let touchY: number | null = null;
 
-      // Snapping stays off until the animation lands, or re-enabling it mid-travel
-      // yanks the deck to the nearest panel and eats the animation.
-      deck.scrollTo({ top: to, behavior: reducedMotion ? 'auto' : 'smooth' });
-      const wait = reducedMotion ? 0 : committed ? 460 : 240;
-      if (unlock) clearTimeout(unlock);
-      unlock = setTimeout(() => {
-        deck.classList.remove('free');
-        locked = false;
-      }, wait);
+    const setPull = (v: number) => {
+      stage.style.setProperty('--pull', v.toFixed(3));
+      stage.classList.toggle('pulling', v > 0.02);
+    };
+
+    /** Drops what has aged out and returns what is left. */
+    const total = (now: number) => {
+      samples = samples.filter(([t]) => now - t < PULL_WINDOW);
+      return samples.reduce((sum, [, d]) => sum + d, 0);
+    };
+
+    // The window has to keep draining while the input has stopped, or the gauge would
+    // freeze wherever the last event left it.
+    const drain = () => {
+      const left = total(performance.now());
+      setPull(Math.min(1, left / PULL_THRESHOLD));
+      raf = left > 0 ? requestAnimationFrame(drain) : 0;
+    };
+
+    const swap = (to: View) => {
+      swapping = true;
+      samples = [];
+      setPull(0);
+      setView(to);
+      window.setTimeout(() => {
+        swapping = false;
+      }, SWAP_MS);
+    };
+
+    /** Is a push in this direction something this view can answer? */
+    const accepts = (down: boolean) => {
+      if (viewRef.current === 'hero') return down;
+      if (!down) {
+        const readout = readoutRef.current;
+        return !!readout && readout.scrollTop <= 0;
+      }
+      return false;
+    };
+
+    const push = (delta: number) => {
+      if (swapping) return false;
+      const down = delta > 0;
+      if (!accepts(down)) {
+        // Pushing the other way is a change of mind, not progress toward anything.
+        if (samples.length > 0) {
+          samples = [];
+          setPull(0);
+        }
+        return false;
+      }
+
+      const now = performance.now();
+      samples.push([now, Math.abs(delta)]);
+      const sum = total(now);
+
+      if (sum >= PULL_THRESHOLD) {
+        swap(viewRef.current === 'hero' ? 'readout' : 'hero');
+        return true;
+      }
+
+      setPull(sum / PULL_THRESHOLD);
+      if (!raf) raf = requestAnimationFrame(drain);
+      return true;
     };
 
     const onWheel = (e: WheelEvent) => {
-      if (locked) {
+      const claimed = push(wheelPixels(e, stage.clientHeight));
+      // Only swallow what the gesture is actually using; the readout must stay
+      // ordinarily scrollable everywhere else.
+      if (claimed || swapping) e.preventDefault();
+    };
+
+    const onTouchStart = (e: TouchEvent) => {
+      touchY = e.touches[0]?.clientY ?? null;
+    };
+
+    const onTouchMove = (e: TouchEvent) => {
+      const y = e.touches[0]?.clientY;
+      if (y === undefined || touchY === null) return;
+      const delta = touchY - y;
+      touchY = y;
+      if (push(delta * TOUCH_GAIN)) e.preventDefault();
+    };
+
+    const onTouchEnd = () => {
+      touchY = null;
+    };
+
+    // Arrow and page keys do the same job without having to earn it. They are already
+    // deliberate, and making someone hammer a key to cross a threshold would be absurd.
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (swapping || e.metaKey || e.ctrlKey || e.altKey) return;
+      const target = e.target as HTMLElement | null;
+      if (target && /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName)) return;
+
+      const forward = e.key === 'PageDown' || e.key === 'ArrowDown' || e.key === ' ';
+      const back = e.key === 'PageUp' || e.key === 'ArrowUp' || e.key === 'Home';
+
+      if (viewRef.current === 'hero' && forward) {
         e.preventDefault();
-        return;
-      }
-
-      const page = deck.clientHeight;
-      const onHero = deck.scrollTop < page / 2;
-      const down = e.deltaY > 0;
-
-      if (!active) {
-        // Claim the gesture only where a panel change is what the scroll would mean.
-        if (onHero && !down) return;
-        if (!onHero) {
-          if (down) return;
-          const readout = readoutRef.current;
-          if (!readout || readout.scrollTop > 0) return;
+        swap('readout');
+      } else if (viewRef.current === 'readout' && back) {
+        const readout = readoutRef.current;
+        if (readout && readout.scrollTop <= 0) {
+          e.preventDefault();
+          swap('hero');
         }
-        active = true;
-        from = onHero ? 0 : page;
-        offset = 0;
-        deck.classList.add('free');
       }
-
-      e.preventDefault();
-      offset += wheelPixels(e, page) * DAMP;
-      offset = from === 0 ? Math.max(0, Math.min(page, offset)) : Math.max(-page, Math.min(0, offset));
-      deck.scrollTop = from + offset;
-
-      if (Math.abs(offset) >= page * COMMIT) {
-        settle(from === 0 ? page : 0, true);
-        return;
-      }
-
-      if (idle) clearTimeout(idle);
-      idle = setTimeout(() => {
-        if (active) settle(from, false);
-      }, IDLE_MS);
     };
 
-    deck.addEventListener('wheel', onWheel, { passive: false });
+    stage.addEventListener('wheel', onWheel, { passive: false });
+    stage.addEventListener('touchstart', onTouchStart, { passive: true });
+    stage.addEventListener('touchmove', onTouchMove, { passive: false });
+    stage.addEventListener('touchend', onTouchEnd, { passive: true });
+    window.addEventListener('keydown', onKeyDown);
+
     return () => {
-      deck.removeEventListener('wheel', onWheel);
-      if (idle) clearTimeout(idle);
-      if (unlock) clearTimeout(unlock);
-      deck.classList.remove('free');
+      stage.removeEventListener('wheel', onWheel);
+      stage.removeEventListener('touchstart', onTouchStart);
+      stage.removeEventListener('touchmove', onTouchMove);
+      stage.removeEventListener('touchend', onTouchEnd);
+      window.removeEventListener('keydown', onKeyDown);
+      if (raf) cancelAnimationFrame(raf);
+      stage.style.removeProperty('--pull');
+      stage.classList.remove('pulling');
     };
-  }, [deckRef, readoutRef, enabled, reducedMotion]);
+  }, [stageRef, readoutRef, setView, enabled]);
 }
 
 /* --------------------------------------------------------------- connection */

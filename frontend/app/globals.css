@@ -94,54 +94,109 @@ body::before {
 /* Only a page that actually has a deck stops the document scrolling. Scoping this to
    the body's contents keeps ordinary pages — /lab, the error state — scrolling normally
    instead of being silently frozen by a rule meant for the lookup page. */
-body:has(.deck) {
+body:has(.stage) {
   height: 100svh;
   overflow: hidden;
 }
 
-.deck {
+/* Two views in one viewport, and no scroll between them.
+
+   There is no scroll position to be halfway through: the hero does not scroll at all,
+   the readout scrolls normally inside itself, and the step between them is a gesture
+   that either happens or does not. See usePull. */
+.stage {
   position: relative;
   z-index: 1;
   height: 100svh;
-  overflow-y: scroll;
-  overflow-x: hidden;
-  scroll-snap-type: y mandatory;
-  scroll-behavior: smooth;
-  /* The hero's own background shows through; the deck only scrolls. */
-  scrollbar-width: none;
+  overflow: hidden;
+  /* The gauge draws from this; usePull keeps it between 0 and 1. */
+  --pull: 0;
 }
 
-/* Set while a wheel gesture is moving the deck by hand. Snapping has to be off or it
-   fights every assignment to scrollTop, and the scroll behaviour has to be instant or
-   the deck lags a frame behind the wheel. See useFirmDeck. */
-.deck.free {
-  scroll-snap-type: none;
-  scroll-behavior: auto;
+.view {
+  position: absolute;
+  inset: 0;
+  transition:
+    transform 520ms cubic-bezier(0.16, 1, 0.3, 1),
+    opacity 300ms ease-out,
+    filter 300ms ease-out;
 }
 
-.deck::-webkit-scrollbar {
-  display: none;
+/* The hero travels less than the readout and softens as it goes, so the two read as
+   depth rather than as two slides passing each other. An ancestor transform, opacity
+   and blur are all safe over the address's clipped gradient; only the address element
+   itself is off limits. */
+.stage[data-view='hero'] .hero {
+  transform: none;
+  opacity: 1;
+  filter: none;
 }
 
-.panel {
-  height: 100svh;
-  scroll-snap-align: start;
-  /* Always come to rest on a panel rather than skipping past one on a fast flick. */
-  scroll-snap-stop: always;
+.stage[data-view='readout'] .hero {
+  transform: translateY(-22%) scale(0.96);
+  opacity: 0;
+  filter: blur(6px);
 }
+
+.stage[data-view='hero'] .readout-panel {
+  transform: translateY(6%);
+  opacity: 0;
+}
+
+.stage[data-view='readout'] .readout-panel {
+  transform: none;
+  opacity: 1;
+}
+
+/* While the pull is building, the hero leans toward the change by the amount already
+   earned. It is the same movement the swap finishes, started early. */
+.stage[data-view='hero'] .hero-inner {
+  transform: translateY(calc(var(--pull) * -14px));
+}
+
+/* The gauge: a hairline growing from the edge you are pulling toward. Nothing at rest,
+   so it costs the page no chrome until there is something to report. */
+.pull-gauge {
+  position: absolute;
+  left: 50%;
+  z-index: 3;
+  height: 2px;
+  width: calc(var(--pull) * 180px);
+  margin-left: calc(var(--pull) * -90px);
+  border-radius: 999px;
+  background: var(--accent);
+  opacity: calc(0.25 + var(--pull) * 0.75);
+  pointer-events: none;
+  transition: opacity 140ms ease-out;
+}
+
+.stage[data-view='hero'] .pull-gauge {
+  bottom: calc(12px + env(safe-area-inset-bottom));
+}
+
+.stage[data-view='readout'] .pull-gauge {
+  top: calc(12px + env(safe-area-inset-top));
+}
+
+/* The cue is the thing the gauge grows under, so it answers the pull as well. */
+.stage.pulling .scroll-cue {
+  color: var(--accent);
+  transform: translate(-50%, calc(var(--pull) * 6px));
+}
+
 
 /* ----------------------------------------------------------------- hero */
 
+/* No `position` of its own: .view already places it, and re-declaring it here at the
+   same specificity but later in the file quietly cancelled the inset and left the hero
+   shrink-wrapped at the top of the screen. */
 .hero {
-  position: relative;
   z-index: 1;
   display: grid;
   place-items: center;
   padding: 48px max(var(--gutter), env(safe-area-inset-left)) 48px
     max(var(--gutter), env(safe-area-inset-right));
   text-align: center;
-  display: grid;
-  place-items: center;
 }
 
 /* The address is the page's heading; the h1 carries no style of its own. */
@@ -383,14 +438,23 @@ button.ip {
 
 /* The second panel is one viewport tall and scrolls inside itself. Reaching either end
    chains back out to the deck, so a continued scroll carries you to the other panel. */
+/* Scrolls ordinarily, and only inside itself: reaching its top must not spill into
+   changing view. That step goes through usePull and nowhere else. */
 .readout-panel {
   overflow-y: auto;
   overflow-x: hidden;
-  /* No chaining to the deck. Reaching the top of the readout must not spill into
-     changing panel; that step is deliberate and goes through useFirmDeck. */
   overscroll-behavior: contain;
   scrollbar-width: thin;
   scrollbar-color: var(--rule-strong) transparent;
+}
+
+/* Both views take focus when they arrive, because the one that leaves goes inert and
+   would otherwise strand whatever was focused inside it. Neither shows a ring: they fill
+   the screen, so an outline around one says nothing about where you are. The controls
+   inside them all keep theirs. */
+.hero:focus-visible,
+.readout-panel:focus-visible {
+  outline: none;
 }
 
 .readout {
@@ -897,10 +961,6 @@ button.ip {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .deck {
-    scroll-behavior: auto;
-  }
-
   *,
   *::before,
   *::after {
@@ -910,5 +970,12 @@ button.ip {
 
   .copied {
     opacity: 1;
+  }
+
+  /* The view change still has to happen, and with transitions off it is a cut. What it
+     must not do is arrive blurred or half-faded, so the outgoing view only moves. */
+  .stage[data-view='readout'] .hero,
+  .stage[data-view='hero'] .readout-panel {
+    filter: none;
   }
 }

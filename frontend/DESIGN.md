@@ -18,22 +18,36 @@ IP, at size, with nothing competing — and it does not scroll. The second holds
 else and scrolls inside itself. The page scrolls between the two and snaps, so each is
 arrived at whole rather than half-glimpsed.
 
-Mechanically that is a deck with `scroll-snap-type: y mandatory` and exactly two panels of
-one viewport each. The readout's own scrolling happens inside its panel, which is why
-there are only ever two snap points — a taller second section would make mandatory
-snapping fight every scroll through it.
+Mechanically they are two views in one viewport, both `position: absolute; inset: 0`, and
+**there is no scroll between them at all**. The hero does not scroll. The readout scrolls
+normally inside itself. The step between them is a gesture, handled entirely in script,
+and the view that is not showing is `inert`.
 
-**The step between the two costs something.** Mandatory snapping on its own commits on the
-smallest flick: one notch of a wheel and the page has changed under you, which is wrong
-for a movement this large. So the wheel is taken over at the two places a panel change
-could happen, and the deck moves at 45% of the wheel's travel — visibly resisting rather
-than ignoring you — handing back to the snap only once you have pushed it 35% of the way
-in. Stop short and it returns where it came from. That works out at about six notches of a
-mouse wheel, or one decisive trackpad swipe.
+That is a deliberate replacement for scroll snapping, which was tried and does not fit
+this page. Snapping still has to be *scrolling*, so there is always a position halfway
+between the two views, and mandatory snapping commits on the smallest flick — one notch of
+a wheel and the page has changed under you. Neither is right for a movement of a whole
+screen.
 
-Touch and keyboard are deliberately left native. A drag and an arrow key are already
-deliberate acts; it was the flick that was too cheap. The scroll cue and the skip link are
-explicit requests and go straight there.
+**The step is earned, not triggered.** What moves you is a *rate*: the script sums the
+scrolling done in the last second, continuously, and plays the change once that sum passes
+600px. Input older than the window stops counting, so the sum falls on its own and a slow
+drift never arrives — it has to be one committed push, about six notches of a mouse wheel
+or a decisive trackpad swipe. Touch counts for 1.6× its raw travel, since a finger moves
+one pixel per pixel where a wheel notch is worth a hundred; that puts a phone at roughly
+half a screen.
+
+It listens in the two places a change is what the scrolling could mean: anywhere on the
+hero, and on the readout only when it is already at its own top.
+
+**The pull is drawn while it builds**, as `--pull` from 0 to 1: a hairline that grows from
+the edge you are pulling toward, the cue taking the accent colour, and the hero leaning
+into the movement the swap will finish. This is the whole reason to measure a rate rather
+than a total — a threshold you cannot see coming is indistinguishable from a page that has
+stopped responding.
+
+Arrow, page and Home keys do the same job without having to earn it, and so do the cue and
+the skip link. They are already deliberate acts; it was the flick that was too cheap.
 
 Not this: identical rounded cards with the same shadow under each, a tracked-out ALL-CAPS
 label above every section, a fade-and-slide-up as each section scrolls into view, `→`
@@ -162,6 +176,13 @@ the token is reserved for sources agreeing.
 One orchestrated moment: the hero fades up once on load, and the glow behind the address
 pulls from a wide blur into focus. Nothing else animates on scroll, and the address's
 gradient no longer drifts — the arrival is the moment.
+
+The view change is the one other piece of motion, and it is a change of place rather than
+decoration: the readout rises into position while the hero recedes — up 22%, down to 0.96,
+blurred and gone over 520ms. The hero travels less than the readout and softens as it
+goes, so the two read as depth rather than as two slides passing each other. Ancestor
+transform, opacity and blur are all safe over the address's clipped gradient; only the
+address element itself is off limits.
 
 **The address element itself must never be animated directly.** It carries a
 `background-clip: text` gradient, and anything that gives it or its children a painting
