@@ -94,7 +94,11 @@ const GROUPS = [
 ];
 
 export default function LabPage() {
-  if (process.env.NEXT_PUBLIC_USE_MOCK !== '1') {
+  // NODE_ENV first, and not negotiable: NEXT_PUBLIC_USE_MOCK is a live
+  // process.env read on the server, so on its own it could be flipped on a
+  // running container, and a build that happened to set it would prerender this
+  // page live. Lab scaffolding has no business being reachable in production.
+  if (process.env.NODE_ENV === 'production' || process.env.NEXT_PUBLIC_USE_MOCK !== '1') {
     notFound();
   }
 

@@ -256,31 +256,55 @@ func TestEmptyHelloDoesNotPanic(t *testing.T) {
 	}
 }
 
-// A hello large enough to be a memory-retention vector keeps its hashes but
-// stops echoing its own contents back.
-func TestOversizedHelloKeepsHashesAndDropsEchoes(t *testing.T) {
-	h := curlHello()
-	h.CipherSuites = make([]uint16, maxListEntries+1)
-	for i := range h.CipherSuites {
-		h.CipherSuites[i] = uint16(i)
-	}
-
-	fp := New(h)
-	if !fp.Truncated {
-		t.Fatal("Truncated = false for an oversized hello")
-	}
-	if len(fp.JA3Hash) != 32 || len(fp.JA4) < 10 {
-		t.Errorf("hashes lost: ja3=%q ja4=%q", fp.JA3Hash, fp.JA4)
-	}
-	for name, got := range map[string]string{
-		"ja3": fp.JA3, "ja3n": fp.JA3N, "ja4_r": fp.JA4R, "ja4_ro": fp.JA4RO,
+// An oversized hello is not fingerprinted at all: no hashes, no echoes, no
+// work done proportional to what the client sent.
+func TestOversizedHelloIsNotFingerprinted(t *testing.T) {
+	for name, mutate := range map[string]func(*tls.ClientHelloInfo){
+		"ciphers": func(h *tls.ClientHelloInfo) {
+			h.CipherSuites = make([]uint16, maxListEntries+1)
+		},
+		"extensions": func(h *tls.ClientHelloInfo) {
+			h.Extensions = make([]uint16, maxListEntries+1)
+		},
+		"curves": func(h *tls.ClientHelloInfo) {
+			h.SupportedCurves = make([]tls.CurveID, maxListEntries+1)
+		},
+		"sigalgs": func(h *tls.ClientHelloInfo) {
+			h.SignatureSchemes = make([]tls.SignatureScheme, maxListEntries+1)
+		},
+		// Both of these are echoed back verbatim on every response rather than
+		// only hashed, which made one handshake a lasting egress multiplier.
+		"alpn": func(h *tls.ClientHelloInfo) {
+			h.SupportedProtos = make([]string, maxALPNEntries+1)
+		},
+		"servername": func(h *tls.ClientHelloInfo) {
+			h.ServerName = strings.Repeat("a", maxServerName+1)
+		},
 	} {
-		if got != "" {
-			t.Errorf("%s still echoed for an oversized hello (%d chars)", name, len(got))
-		}
-	}
-	if fp.CipherSuites != nil || fp.Extensions != nil {
-		t.Error("decoded lists still retained for an oversized hello")
+		t.Run(name, func(t *testing.T) {
+			h := curlHello()
+			mutate(h)
+
+			fp := New(h)
+			if !fp.Truncated {
+				t.Fatal("Truncated = false for an oversized hello")
+			}
+			for field, got := range map[string]string{
+				"ja3": fp.JA3, "ja3n": fp.JA3N, "ja3_hash": fp.JA3Hash,
+				"ja3n_hash": fp.JA3NHash, "ja4": fp.JA4, "ja4_r": fp.JA4R,
+				"ja4_o": fp.JA4O, "ja4_ro": fp.JA4RO,
+			} {
+				if got != "" {
+					t.Errorf("%s computed for an oversized hello: %q", field, got)
+				}
+			}
+			if fp.CipherSuites != nil || fp.Extensions != nil || fp.ALPN != nil {
+				t.Error("client lists retained for an oversized hello")
+			}
+			if fp.ServerName != "" {
+				t.Error("server name retained for an oversized hello")
+			}
+		})
 	}
 }
 

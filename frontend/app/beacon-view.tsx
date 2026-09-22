@@ -12,6 +12,35 @@ import { PSEUDO_HEADER_NAMES, SETTING_NAMES } from '@/lib/types';
 
 type Status = 'loading' | 'ready' | 'error';
 
+/**
+ * Where this service's source lives, for the AGPL section 13 offer in the
+ * footer. A fork that changes the code has to change this too — that is the
+ * point of the clause.
+ */
+const SOURCE_URL = 'https://github.com/mosphox/beacon';
+
+/**
+ * Selects the address so it can be copied by hand.
+ *
+ * The hero is deliberately `user-select: none`, so a range over it selects
+ * nothing — the rule has to be lifted for the duration. This is the fallback
+ * for every case where the Clipboard API is unavailable or refuses.
+ */
+function selectAddress(button: HTMLButtonElement | null) {
+  const text = button?.querySelector('.ip-text');
+  if (!text || !window.getSelection) return;
+
+  const selection = window.getSelection();
+  if (!selection) return;
+
+  const el = text as HTMLElement;
+  el.style.userSelect = 'text';
+  const range = document.createRange();
+  range.selectNodeContents(el);
+  selection.removeAllRanges();
+  selection.addRange(range);
+}
+
 function placeOf(loc: Location): string {
   const parts = [loc.city, loc.region, loc.country].filter(Boolean);
   return parts.join(', ');
@@ -98,7 +127,16 @@ export default function BeaconView() {
   useEffect(() => () => void (snapTimer.current && clearTimeout(snapTimer.current)), []);
 
   function copy() {
-    if (!data?.ip || !navigator.clipboard) return;
+    if (!data?.ip) return;
+
+    // The Clipboard API is [SecureContext]: over plain HTTP from anything but
+    // localhost, navigator.clipboard is undefined. Selecting the address is the
+    // honest fallback — the control still does something, and the user can copy
+    // it themselves — rather than a button that silently does nothing.
+    if (!navigator.clipboard) {
+      selectAddress(addressRef.current);
+      return;
+    }
 
     // Fire the snap on the click rather than on the clipboard promise: the
     // acknowledgement should track the press, not the round trip.
@@ -110,7 +148,9 @@ export default function BeaconView() {
 
     navigator.clipboard.writeText(data.ip).then(
       () => setCopied((n) => n + 1),
-      () => {},
+      // Permission denied, or a policy that forbids it. Falling back to a
+      // selection keeps the press meaningful instead of swallowing the failure.
+      () => selectAddress(addressRef.current),
     );
   }
 
@@ -126,9 +166,14 @@ export default function BeaconView() {
 
   if (status === 'error') {
     return (
-      <main className="state">
+      // The page has no other heading in this state, and the change from
+      // loading to failed happens without a navigation, so nothing would
+      // announce it. role="alert" is what tells a screen reader the answer is
+      // not coming.
+      <main className="state" role="alert">
         <div>
-          <p>Could not reach the lookup service.</p>
+          <h1>Could not reach the lookup service.</h1>
+          <p>The connection details could not be fetched. This is usually temporary.</p>
           <button type="button" className="retry" onClick={retry}>
             Try again
           </button>
@@ -226,17 +271,45 @@ export default function BeaconView() {
 
         {!loading ? (
           <section className="panel readout-panel" ref={readoutRef}>
-            <div className="readout" id="readout">
+            <div className="readout" id="readout" tabIndex={-1}>
               <Connection data={data} />
               <LocationSection data={data} />
               <NetworkSection data={data} />
               <TlsSection data={data} showAll={showAll} onExpand={expand} />
               <Http2Section data={data} />
+              <Colophon />
             </div>
           </section>
         ) : null}
       </main>
     </>
+  );
+}
+
+/**
+ * Two obligations, discharged where the people they are owed to can see them.
+ *
+ * AGPL-3.0 section 13 requires a network service to offer its source to the
+ * users interacting with it, which a link in a repository cannot do. MaxMind's
+ * GeoLite2 EULA requires its notice verbatim, and DB-IP Lite is CC-BY 4.0,
+ * which requires attribution on the output and not only in the README.
+ */
+function Colophon() {
+  return (
+    <footer className="colophon">
+      <p>
+        Beacon is free software under the{' '}
+        <a href="https://www.gnu.org/licenses/agpl-3.0.html">AGPL-3.0</a>. The complete
+        source for this service is at{' '}
+        <a href={SOURCE_URL}>{SOURCE_URL.replace('https://', '')}</a>.
+      </p>
+      <p>
+        This product includes GeoLite2 data created by MaxMind, available from{' '}
+        <a href="https://www.maxmind.com">maxmind.com</a>. IP geolocation by{' '}
+        <a href="https://db-ip.com">DB-IP</a>, licensed under{' '}
+        <a href="https://creativecommons.org/licenses/by/4.0/">CC&nbsp;BY&nbsp;4.0</a>.
+      </p>
+    </footer>
   );
 }
 
@@ -417,6 +490,18 @@ const NETWORK_FIELDS: Field<Network>[] = [
 
 function NetworkSection({ data }: { data: BeaconResponse }) {
   const { network, sources } = data;
+
+  if (sources.length === 0) {
+    return (
+      <Section title="Network">
+        <p className="note">
+          No database has network information for this address. Private and reserved
+          ranges belong to no autonomous system.
+        </p>
+      </Section>
+    );
+  }
+
   const multiple = sources.length > 1;
   const orgs = new Set(sources.map((s) => s.network.asn_org).filter(Boolean));
   const asns = new Set(sources.map((s) => s.network.asn).filter((a) => a !== null));
@@ -600,9 +685,12 @@ function Http2Section({ data }: { data: BeaconResponse }) {
         }
       >
         <Rows>
-          {h2.settings.map((s) => (
+          {h2.settings.map((s, i) => (
             <Row
-              key={s.id}
+              /* Not keyed on the id alone: RFC 9113 6.5 lets a client repeat a
+                 setting, and a client that sends INITIAL_WINDOW_SIZE twice is
+                 exactly the kind this page exists to look at. */
+              key={`${s.id}-${i}`}
               labelMono
               label={SETTING_NAMES[s.id] ?? `SETTING_${s.id}`}
               value={s.value.toLocaleString()}

@@ -87,7 +87,15 @@ func Load() (Config, error) {
 	}
 
 	cfg.DataDir = envOr("DATA_DIR", defaultDataDir)
-	cfg.ListenAddr = envOr("LISTEN_ADDR", defaultListenAddr)
+	// LookupEnv, not envOr: an explicitly empty LISTEN_ADDR is how a TLS-only
+	// deployment turns the plain listener off, and envOr would have substituted
+	// the default back in — which made that unreachable and left main's
+	// "nothing to listen on" check dead code.
+	if v, ok := os.LookupEnv("LISTEN_ADDR"); ok {
+		cfg.ListenAddr = v
+	} else {
+		cfg.ListenAddr = defaultListenAddr
+	}
 	cfg.TLSListenAddr = envOr("TLS_LISTEN_ADDR", defaultTLSListenAddr)
 
 	frontendURL, ok := os.LookupEnv("FRONTEND_URL")
@@ -102,7 +110,11 @@ func Load() (Config, error) {
 	}
 	cfg.FrontendURL = frontendURL
 
-	if cfg.TrustProxyHeaders, err = boolEnv("TRUST_PROXY_HEADERS", true); err != nil {
+	// Defaults to false. Believing a client's own X-Forwarded-For is only safe
+	// where something in front is guaranteed to overwrite it, and a default
+	// that assumes so makes the one thing this service reports falsifiable by
+	// anyone who sends a header.
+	if cfg.TrustProxyHeaders, err = boolEnv("TRUST_PROXY_HEADERS", false); err != nil {
 		return Config{}, err
 	}
 	if cfg.RDNSEnabled, err = boolEnv("RDNS_ENABLED", true); err != nil {

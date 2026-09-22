@@ -76,11 +76,30 @@ var tools = regexp.MustCompile(`(?i)` + strings.Join([]string{
 
 // IsBot reports whether the User-Agent identifies a program rather than a
 // person's browser.
-func IsBot(ua string) bool { return ua != "" && tools.MatchString(ua) }
+func IsBot(ua string) bool { return ua != "" && tools.MatchString(clamp(ua)) }
+
+// maxUA bounds what reaches the regexes.
+//
+// RE2 is linear in input times program size, and these two patterns are large:
+// measured at roughly 2.8us per byte. net/http accepts a 1 MiB header by
+// default, so an unbounded User-Agent bought an attacker about three seconds of
+// CPU for one request. No real agent is anywhere near this long, and a bot that
+// pads past it is a bot either way.
+const maxUA = 512
+
+func clamp(ua string) string {
+	if len(ua) > maxUA {
+		return ua[:maxUA]
+	}
+	return ua
+}
 
 // looksLikeBrowserUA reports whether the User-Agent names a browser engine.
+//
+// The caller has already ruled out bots; repeating IsBot here doubled the cost
+// of the more expensive of the two patterns on every request.
 func looksLikeBrowserUA(ua string) bool {
-	return ua != "" && !IsBot(ua) && engines.MatchString(ua)
+	return ua != "" && engines.MatchString(clamp(ua))
 }
 
 // IsNavigation reports whether this request is a browser loading a page to

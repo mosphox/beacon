@@ -4,12 +4,24 @@ services:
     container_name: beacon-init-volume
     volumes:
       - beacon-data:/app/data
-    command: sh -c "chown -R 1000:1000 /app/data && chmod -R 755 /app/data"
+    # chmod without -R, and 700. The recursive 755 ran on every `up` and
+    # flattened what CertMagic deliberately creates as 0700, leaving the ACME
+    # account key and the TLS private keys world-readable inside the volume.
+    command: sh -c "chown -R 1000:1000 /app/data && chmod 700 /app/data"
     restart: "no"
 
   frontend:
     build: ./frontend
     container_name: beacon-frontend
+    # Guard rails, not tuning. Actual use is ~5 MiB for the backend (the mmdb
+    # files are mmap'd, not read) and ~40 MiB for Next; these are far above
+    # that and exist so a leak or an attack cannot take the host with it.
+    mem_limit: 512m
+    pids_limit: 256
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     restart: unless-stopped
     expose:
       - "3000"
@@ -21,6 +33,15 @@ services:
   backend:
     build: ./backend
     container_name: beacon-backend
+    # Guard rails, not tuning. Actual use is ~5 MiB for the backend (the mmdb
+    # files are mmap'd, not read) and ~40 MiB for Next; these are far above
+    # that and exist so a leak or an attack cannot take the host with it.
+    mem_limit: 512m
+    pids_limit: 256
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     restart: unless-stopped
     depends_on:
       init-volume:
@@ -37,7 +58,7 @@ services:
       - DBIP_ENABLED=${DBIP_ENABLED:-true}
       - MAXMIND_ACCOUNT_ID=${MAXMIND_ACCOUNT_ID:-}
       - MAXMIND_LICENSE_KEY=${MAXMIND_LICENSE_KEY:-}
-      - TRUST_PROXY_HEADERS=${TRUST_PROXY_HEADERS:-true}
+      - TRUST_PROXY_HEADERS=${TRUST_PROXY_HEADERS:-false}
       - RDNS_ENABLED=${RDNS_ENABLED:-true}
       - RDNS_TIMEOUT_MS=${RDNS_TIMEOUT_MS:-300}
       - RDNS_CACHE_TTL_SECONDS=${RDNS_CACHE_TTL_SECONDS:-3600}
@@ -60,7 +81,7 @@ services:
       retries: 3
       start_period: 180s
     ports:
-      - "${HOST:-0.0.0.0}:${PORT:-80}:8000"
+      - "${HOST:-127.0.0.1}:${PORT:-8080}:8000"
       # Publish the TLS listener only when TLS_ENABLED=true. Keep it on
       # loopback: the edge proxy passes TLS through to it, nothing else should
       # reach it. Set TLS_PUBLISH=127.0.0.1:8443:8443 in .env to enable.

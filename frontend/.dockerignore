@@ -7,3 +7,11 @@ Dockerfile
 .git
 *.swp
 *.swo
+
+# Never into the build context. NEXT_PUBLIC_* values are inlined at build time,
+# so a stray .env.local carrying NEXT_PUBLIC_USE_MOCK=1 would be baked into a
+# production image — and the root .gitignore hides these from git, so it would
+# not be visible in a diff either.
+.env
+.env.*
+!.env.example

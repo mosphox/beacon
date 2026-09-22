@@ -1,0 +1,104 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_call:
+
+# This job reads code and nothing else.
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    name: Go
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+
+      - name: gofmt
+        working-directory: backend
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "not gofmt'd:"; echo "$unformatted"; exit 1
+          fi
+
+      - name: go vet
+        working-directory: backend
+        run: go vet ./...
+
+      - name: go build
+        working-directory: backend
+        run: go build ./...
+
+      # -count=1 defeats the test cache: a green run has to mean the tests
+      # actually executed against this commit.
+      - name: go test -race
+        working-directory: backend
+        run: go test -race -count=1 ./...
+
+      # The suite was once invisible to CI because .gitignore carried
+      # *_test.go, so about a hundred tests never ran and nothing noticed.
+      # This fails if that class of mistake comes back.
+      - name: every test file is tracked
+        run: |
+          on_disk=$(find backend -name '*_test.go' | sort)
+          tracked=$(git ls-files 'backend/**/*_test.go' | sort)
+          if [ -z "$tracked" ]; then
+            echo "no test files are tracked by git"; exit 1
+          fi
+          if [ "$on_disk" != "$tracked" ]; then
+            echo "test files on disk but not tracked:"
+            diff <(echo "$tracked") <(echo "$on_disk") || true
+            exit 1
+          fi
+          echo "$(echo "$tracked" | wc -l) test files, all tracked"
+
+      - name: govulncheck
+        working-directory: backend
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          govulncheck ./...
+
+  frontend:
+    name: Next.js
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: install
+        working-directory: frontend
+        run: npm ci
+
+      - name: typecheck
+        working-directory: frontend
+        run: npm run typecheck
+
+      - name: lint
+        working-directory: frontend
+        run: npm run lint
+
+      # NODE_ENV=production is what the guards on /lab and the mock API key
+      # off, so this also proves they compile shut.
+      - name: build
+        working-directory: frontend
+        run: npm run build
+
+  images:
+    name: Docker images
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: build both images
+        run: docker compose build

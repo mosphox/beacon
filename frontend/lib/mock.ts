@@ -163,7 +163,7 @@ type Fixture = {
 
 const FIXTURES: Fixture[] = [
   {
-    ip: '149.3.33.84',
+    ip: '203.0.113.84',
     family: 'ipv4',
     hostname: '84.33.3.149.silknet.com',
     agree: true,

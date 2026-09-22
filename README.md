@@ -159,12 +159,12 @@ per field from the first source that has each one, so a source knowing only the
 ASN does not blank out a city another source knows.
 
 ```
-$ curl -s -H 'Accept: application/json' http://localhost/31.77.105.207
+$ curl -s -H 'Accept: application/json' http://localhost/203.0.113.17
 {
   "version": 2,
-  "ip": "31.77.105.207",
+  "ip": "203.0.113.17",
   "family": "ipv4",
-  "hostname": "714609.senko.network",
+  "hostname": "host-17.example.net",
   "location": { "city": "Hong Kong", "region": "Central and Western District",
                 "region_code": null, "subdivisions": [ ... ], "postal_code": null,
                 "country": "Hong Kong", "country_code": "HK",
@@ -218,11 +218,11 @@ it, and the alternatives are separated by ` / `. Location and ASN are grouped
 independently, so a disagreement about one does not clutter the other:
 
 ```
-$ curl -s http://localhost/46.133.0.147
-46.133.0.147 Dnipro [UA] Ukraine [MaxMind] / Chernivtsi [UA] Ukraine [DB-IP] AS21497 (PrJSC "VF UKRAINE")
+$ curl -s http://localhost/203.0.113.42
+203.0.113.42 Dnipro [UA] Ukraine [MaxMind] / Chernivtsi [UA] Ukraine [DB-IP] AS21497 (PrJSC "VF UKRAINE")
 
-$ curl -s http://localhost/31.77.105.207
-31.77.105.207 Hong Kong [HK] Hong Kong [MaxMind] / London [GB] United Kingdom [DB-IP] AS9304 (HGC Global Communications Limited) [MaxMind] / AS213520 (Senko Digital LLC) [DB-IP]
+$ curl -s http://localhost/203.0.113.17
+203.0.113.17 Hong Kong [HK] Hong Kong [MaxMind] / London [GB] United Kingdom [DB-IP] AS9304 (HGC Global Communications Limited) [MaxMind] / AS213520 (Senko Digital LLC) [DB-IP]
 ```
 
 ### Errors
@@ -455,9 +455,28 @@ through rather than terminate it. With Caddy that is the `layer4` listener
 wrapper — note it attaches to Caddy's *existing* listener, so there is no
 second bind on `:443`:
 
+**`layer4` is a third-party module and is not in the stock Caddy binary.** A
+distribution package, the official Docker image or a downloaded release will
+reject the config below as an unknown module, and because it is a global
+options block `caddy reload` refuses the whole file — your other sites keep
+running on the old config and beacon never comes up. Build Caddy with it first:
+
+```bash
+xcaddy build --with github.com/mholt/caddy-l4
+```
+
+(It is also selectable in the plugin picker on caddyserver.com/download if you
+would rather not install a Go toolchain.)
+
 ```caddyfile
 {
     servers :443 {
+        # A listener wrapper is TCP-only, and HTTP/3 is on by default. Without
+        # this, a QUIC connection bypasses the wrapper entirely and beacon
+        # never sees it. Note this disables HTTP/3 for *every* site on this
+        # server, not just beacon — that is a real cost, not a free precaution.
+        protocols h1 h2
+
         listener_wrappers {
             layer4 {
                 @beacon tls sni beacon.example.com
@@ -477,16 +496,40 @@ second bind on `:443`:
 Set `PROXY_PROTOCOL=true` to match. A TCP-level proxy opens a new connection to
 beacon, so without it every visitor would be reported as the proxy.
 
-Three things to get right:
+Things to get right — the first three fail *silently*, and `caddy validate`
+reports "Valid configuration" for all of them:
 
+- **`servers :443` is matched as a literal string, not as an address.** If your
+  sites use `bind`, the server's listen address becomes `10.0.0.5:443` and this
+  block is skipped with no warning and no `listener_wrappers` key in the
+  adapted config. Run `caddy adapt` and confirm `listener_wrappers` actually
+  appears on the `:443` server before reloading.
+- **The bare `tls` line is mandatory and must come after `layer4`.** It is a
+  no-op placeholder marking where TLS termination belongs in the chain. Omit it
+  and Caddy silently prepends it, so `layer4` runs *after* termination and sees
+  decrypted bytes — the `tls sni` matcher then never matches anything. Putting
+  it first is at least a loud error.
+- **If you already have a `servers :443` block, merge into it.** A second one is
+  a hard error, and `listener_wrappers` is assigned wholesale, so every wrapper
+  has to be in one chain.
 - Remove any site block for beacon's domain. Once layer4 matches its SNI the
-  block is unreachable, and you do not want the proxy obtaining a certificate
-  for a name beacon issues its own certificate for.
-- A listener wrapper is TCP-only. If HTTP/3 is advertised on that server, a
-  QUIC connection bypasses it entirely — pin the server to `h1 h2`.
-- Keep beacon's TLS port on loopback. With `PROXY_PROTOCOL=true` beacon
-  requires the header, so a direct connection is refused rather than
+  block is unreachable, and Caddy could never answer a TLS-ALPN-01 challenge for
+  that name — the connection is diverted before its TLS listener. Other
+  hostnames are unaffected.
+- **Every connection on `:443` now gets layer4's 3-second matching deadline**,
+  including your other sites'. A client that connects and does not send a
+  ClientHello within 3s is dropped — TCP health checks that never handshake,
+  and slow mobile clients. Raise it with `matching_timeout` inside the `layer4`
+  block if that matters.
+- Keep beacon's TLS port on loopback, and set `TLS_PUBLISH=127.0.0.1:8443:8443`
+  so it is published on a *fixed* port — left unset, compose picks a random one
+  and the `upstream` above dials a closed port. With `PROXY_PROTOCOL=true`
+  beacon requires the header, so a direct connection is refused rather than
   misattributed, but there is no reason to expose it at all.
+
+This arrangement is verified: a ClientHello replayed through it arrives at
+beacon byte-identical (sha256 match) behind a 28-byte PROXY v2 header carrying
+the real client address, which is what makes the fingerprints meaningful.
 
 ## Project layout
 
@@ -515,6 +558,29 @@ docker-compose.yaml       the three-container stack
 .github/workflows         SSH deploy
 ```
 
+## Attribution
+
+This product includes GeoLite2 data created by MaxMind, available from
+[maxmind.com](https://www.maxmind.com).
+
+IP geolocation by [DB-IP](https://db-ip.com), licensed under
+[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
+
+Both notices also appear in the page's footer, which is where the licences
+require them: attribution is owed to the people using the service, not only to
+people reading the repository.
+
 ## License
 
 AGPL-3.0. See [LICENSE](LICENSE).
+
+Because beacon is run as a network service, AGPL-3.0 section 13 applies: the
+complete source has to be offered to the people interacting with it. The page
+footer links to this repository and every response carries an `X-Source-Code`
+header. **If you modify beacon and run it, both of those must point at your
+source**, not this one — `SOURCE_URL` in `frontend/app/beacon-view.tsx` and
+`sourceURL` in `backend/main.go`.
+
+The JA4 TLS client fingerprint is FoxIO's work under a separate BSD-3-Clause
+grant; see [LICENSE-JA4](LICENSE-JA4), which also explains why the rest of the
+JA4+ suite is not implemented here and must not be added.

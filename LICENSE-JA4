@@ -1,0 +1,52 @@
+JA4 (TLS client fingerprint) — BSD 3-Clause License
+===================================================
+
+beacon is licensed under the AGPL-3.0 (see LICENSE). This file covers one
+component of it.
+
+`backend/internal/tlsfp` implements the JA4 TLS *client* fingerprint, and its
+JA4_r, JA4_o and JA4_ro variants, from the published specification. JA4 is the
+work of FoxIO, LLC and is released by them under the BSD 3-Clause License
+reproduced below, separately from the rest of the JA4+ suite.
+
+The remaining JA4+ algorithms — JA4S, JA4H, JA4L, JA4X, JA4SSH, JA4T and the
+others — are published under the FoxIO License 1.1, which adds restrictions on
+commercial use. AGPL-3.0 section 7 forbids adding further restrictions to a
+covered work, so that licence is incompatible with this project and **none of
+those algorithms are implemented here**. Do not add one.
+
+The implementation is written from the specification against Go's
+`crypto/tls.ClientHelloInfo`; no FoxIO source is copied or adapted.
+
+JA3, from which JA4 descends, is the work of Salesforce, Inc. and is also
+BSD 3-Clause licensed.
+
+---
+
+Copyright (c) 2023, FoxIO, LLC.
+All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+1. Redistributions of source code must retain the above copyright notice, this
+   list of conditions and the following disclaimer.
+
+2. Redistributions in binary form must reproduce the above copyright notice,
+   this list of conditions and the following disclaimer in the documentation
+   and/or other materials provided with the distribution.
+
+3. Neither the name of the copyright holder nor the names of its contributors
+   may be used to endorse or promote products derived from this software
+   without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.

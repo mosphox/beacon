@@ -6,15 +6,29 @@ on:
       - main
   workflow_dispatch:
 
+# The deploy job only needs to read the repo; it authenticates to the host with
+# its own SSH key. Without this it inherits the repository default token.
+permissions:
+  contents: read
+
 jobs:
+  # Nothing reaches the server that has not built, vetted and passed its tests.
+  # Before this existed, a push that broke the suite deployed green, which is
+  # the same blind spot that let ~100 ignored test files go unnoticed.
+  verify:
+    uses: ./.github/workflows/ci.yml
+
   deploy:
+    needs: verify
     runs-on: ubuntu-latest
     concurrency:
       group: deploy-${{ github.ref }}
       cancel-in-progress: false
     steps:
       - name: Deploy via SSH
-        uses: appleboy/ssh-action@v1.0.3
+        # Pinned to a commit, not a tag: this step is handed a deploy key, and
+        # a mutable tag means whoever controls that action controls the server.
+        uses: appleboy/ssh-action@029f5b4aeeeb58fdfe1410a5d17f967dacf36262 # v1.0.3
         with:
           host: ${{ secrets.HOST }}
           port: ${{ secrets.PORT }}

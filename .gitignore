@@ -22,7 +22,15 @@ go.work
 go.work.sum
 
 # env file
+# Every form of it. Next.js also reads .env.local and .env.production,
+# and a NEXT_PUBLIC_* value in one of those is inlined into the build.
 .env
+.env.*
+!.env.example
+
+# Certificates and keys, wherever they land.
+*.pem
+*.key
 
 # Node / Next.js
 /frontend/node_modules

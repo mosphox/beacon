@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from 'next';
-import { JetBrains_Mono, Martian_Mono, Outfit } from 'next/font/google';
+import { JetBrains_Mono, Outfit } from 'next/font/google';
 
 import './globals.css';
 
@@ -14,14 +14,6 @@ const jetbrainsMono = JetBrains_Mono({
   subsets: ['latin'],
   weight: ['400', '700'],
   variable: '--font-jetbrains',
-  display: 'swap',
-});
-
-// Candidate display face for the address, used by the /lab variants.
-const martianMono = Martian_Mono({
-  subsets: ['latin'],
-  weight: ['300', '700'],
-  variable: '--font-martian',
   display: 'swap',
 });
 
@@ -40,7 +32,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html
       lang="en"
-      className={`${outfit.variable} ${jetbrainsMono.variable} ${martianMono.variable}`}
+      className={`${outfit.variable} ${jetbrainsMono.variable}`}
       /* Dark-only: tells the UA to render scrollbars and form controls to match. */
       style={{ colorScheme: 'dark' }}
     >

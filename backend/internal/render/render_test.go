@@ -485,3 +485,57 @@ func TestV1HasNoHTTP2Block(t *testing.T) {
 		t.Errorf("v1 has %d keys, want 5", len(m))
 	}
 }
+
+// The v2 shape is a published API. These pin the two things that were wrong in
+// it and that nothing else asserted: a []uint8 field silently base64-encodes,
+// and a Go nil slice silently becomes null. Both shipped for a while precisely
+// because no test read the wire bytes for these fields.
+func TestV2ListsAreArraysNotBase64OrNull(t *testing.T) {
+	// A real client that offered no ALPN and sent no pseudo-header order: both
+	// of these arrive as nil slices from their capture packages.
+	fp := &tlsfp.Fingerprint{
+		JA4:          "t13d1516h2_8daaf6152771_e5627efa2ab1",
+		TLSVersion:   "TLS 1.3",
+		PointFormats: []uint8{0},
+		ALPN:         nil,
+	}
+	h2 := &h2fp.Fingerprint{Raw: "1:65536|0|0|", Hash: "d41d8cd9", PseudoHeaderOrder: nil}
+
+	m := decode(t,
+		New("8.8.8.8", "", one("MaxMind", full())).WithTLS(fp, nil).WithHTTP2(h2),
+		SchemaVersion)
+
+	hello := m["tls"].(map[string]any)["client_hello"].(map[string]any)
+	for _, field := range []string{"point_formats", "alpn"} {
+		got, ok := hello[field]
+		if !ok {
+			t.Errorf("%s missing from client_hello", field)
+			continue
+		}
+		if _, isArray := got.([]any); !isArray {
+			t.Errorf("client_hello.%s = %#v (%T), want a JSON array. A string means "+
+				"[]uint8 was base64-encoded; nil means a Go nil slice reached the wire",
+				field, got, got)
+		}
+	}
+
+	order := m["http2"].(map[string]any)["pseudo_header_order"]
+	if _, isArray := order.([]any); !isArray {
+		t.Errorf("http2.pseudo_header_order = %#v, want a JSON array", order)
+	}
+}
+
+// Point formats are small integers and must read as numbers on the wire.
+func TestPointFormatsAreNumbers(t *testing.T) {
+	fp := &tlsfp.Fingerprint{TLSVersion: "TLS 1.3", PointFormats: []uint8{0, 1}}
+	m := decode(t, New("8.8.8.8", "", one("MaxMind", full())).WithTLS(fp, nil), SchemaVersion)
+
+	got := m["tls"].(map[string]any)["client_hello"].(map[string]any)["point_formats"]
+	list, ok := got.([]any)
+	if !ok {
+		t.Fatalf("point_formats = %#v (%T), want an array", got, got)
+	}
+	if len(list) != 2 || list[0] != float64(0) || list[1] != float64(1) {
+		t.Errorf("point_formats = %#v, want [0 1]", list)
+	}
+}

@@ -236,18 +236,35 @@ func alpnCode(protos []string) string {
 // maxListEntries bounds what is echoed back rather than hashed.
 //
 // crypto/tls accepts a handshake message up to 64 KiB, which is room for tens
-// of thousands of cipher suites. The hashes stay cheap at any size, but the
-// unhashed JA3 and JA4_r forms are proportional to the input and are held for
-// the connection's lifetime, so a hello spent entirely on ciphers would retain
-// roughly ten times its own size. No real client offers more than a couple of
+// of thousands of cipher suites. No real client offers more than a couple of
 // hundred of anything.
+//
+// An oversized hello is not fingerprinted at all. The hashes are not cheap at
+// any size — computing one means building and sorting a string proportional to
+// everything the client sent, measured at 5 MiB allocated and 8ms of CPU for a
+// 64 KiB hello — and this runs in GetConfigForClient, before certificate
+// selection, so it is reachable without completing a handshake. A fingerprint
+// of a hello no real client would send has no diagnostic value to weigh
+// against that: nobody looks up the JA4 of a fuzzer.
 const maxListEntries = 512
+
+// ALPN and the server name are echoed back verbatim in every response rather
+// than only being hashed, so they are bounded too. crypto/tls puts no limit on
+// the number of protocol names: a 40 KB ALPN extension yields ~20000 retained
+// strings and was measured turning one handshake into a 1985x egress
+// multiplier across the requests that followed on that connection.
+const (
+	maxALPNEntries = 64
+	maxServerName  = 256
+)
 
 func oversized(chi *tls.ClientHelloInfo) bool {
 	return len(chi.CipherSuites) > maxListEntries ||
 		len(chi.Extensions) > maxListEntries ||
 		len(chi.SupportedCurves) > maxListEntries ||
-		len(chi.SignatureSchemes) > maxListEntries
+		len(chi.SignatureSchemes) > maxListEntries ||
+		len(chi.SupportedProtos) > maxALPNEntries ||
+		len(chi.ServerName) > maxServerName
 }
 
 func twoDigits(n int) string {
@@ -258,7 +275,20 @@ func twoDigits(n int) string {
 }
 
 // New computes every supported fingerprint from one ClientHello.
+//
+// An oversized hello is rejected before any work is done on it. This used to
+// build every string and sorted copy first and discard them afterwards, which
+// meant a 64 KiB hello cost 5 MiB of allocation and 8ms of CPU to produce
+// nothing — in GetConfigForClient, so before certificate selection, reachable
+// with a TCP connect and one record and no completed handshake.
 func New(chi *tls.ClientHelloInfo) *Fingerprint {
+	if oversized(chi) {
+		return &Fingerprint{
+			Truncated:  true,
+			TLSVersion: versionName(negotiableVersion(chi)),
+		}
+	}
+
 	curves := make([]uint16, 0, len(chi.SupportedCurves))
 	for _, c := range chi.SupportedCurves {
 		curves = append(curves, uint16(c))
@@ -269,7 +299,6 @@ func New(chi *tls.ClientHelloInfo) *Fingerprint {
 	}
 
 	fp := &Fingerprint{
-		Truncated:    oversized(chi),
 		CipherSuites: chi.CipherSuites,
 		Extensions:   chi.Extensions,
 		SupportedTLS: chi.SupportedVersions,
@@ -292,13 +321,6 @@ func New(chi *tls.ClientHelloInfo) *Fingerprint {
 
 	fp.ja3(chi, ciphers, exts, cleanCurves)
 	fp.ja4(chi, ciphers, exts, cleanSigs)
-
-	// Keep the digests, drop everything whose size tracks the client's input.
-	if fp.Truncated {
-		fp.JA3, fp.JA3N, fp.JA4R, fp.JA4RO = "", "", "", ""
-		fp.CipherSuites, fp.Extensions = nil, nil
-		fp.Curves, fp.SignatureAlgos, fp.SupportedTLS = nil, nil, nil
-	}
 	return fp
 }
 

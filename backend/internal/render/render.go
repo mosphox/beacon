@@ -344,13 +344,19 @@ type tlsOffered struct {
 	Extensions        []string `json:"extensions"`
 	SupportedVersions []string `json:"supported_versions"`
 	SupportedGroups   []string `json:"supported_groups"`
-	PointFormats      []uint8  `json:"point_formats"`
-	SignatureAlgos    []string `json:"signature_algorithms"`
-	ALPN              []string `json:"alpn"`
-	ServerName        *string  `json:"server_name"`
-	GREASE            bool     `json:"grease"`
-	// Truncated means the hello was too large to echo back. The hashes above
-	// still cover everything the client sent; the decoded lists are withheld.
+	// []int, not []uint8: encoding/json treats []uint8 as []byte and
+	// base64-encodes it, so this field shipped as "AA==" while the published
+	// schema, the client types and the README all documented an array of
+	// numbers. Nothing read it, which is why nothing caught it.
+	PointFormats   []int    `json:"point_formats"`
+	SignatureAlgos []string `json:"signature_algorithms"`
+	ALPN           []string `json:"alpn"`
+	ServerName     *string  `json:"server_name"`
+	GREASE         bool     `json:"grease"`
+	// Truncated means the hello was too large to fingerprint. Every field in
+	// this block and every hash above it is empty: computing them costs work
+	// proportional to whatever the client sent, before the handshake is even
+	// complete, and a hello this large is not a real client to identify.
 	Truncated bool `json:"truncated"`
 }
 
@@ -560,12 +566,16 @@ func (resp Response) tlsBlock() *tlsBlock {
 			Extensions:        hexList(fp.Extensions),
 			SupportedVersions: hexList(fp.SupportedTLS),
 			SupportedGroups:   hexList(fp.Curves),
-			PointFormats:      fp.PointFormats,
+			PointFormats:      intList(fp.PointFormats),
 			SignatureAlgos:    hexList(fp.SignatureAlgos),
-			ALPN:              fp.ALPN,
-			ServerName:        emptyToNull(fp.ServerName),
-			GREASE:            fp.GREASE,
-			Truncated:         fp.Truncated,
+			// Re-made rather than passed through: a nil slice encodes as null,
+			// and every list in this schema is documented as an array. The
+			// client dereferences it without a guard, so null took the page
+			// down rather than degrading a row.
+			ALPN:       strList(fp.ALPN),
+			ServerName: emptyToNull(fp.ServerName),
+			GREASE:     fp.GREASE,
+			Truncated:  fp.Truncated,
 		},
 	}
 	if n := resp.Negotiated; n != nil {
@@ -605,8 +615,26 @@ func (resp Response) http2Block() *http2Block {
 		Settings:          settings,
 		WindowUpdate:      fp.WindowUpdate,
 		Priorities:        priorities,
-		PseudoHeaderOrder: fp.PseudoHeaderOrder,
+		PseudoHeaderOrder: strList(fp.PseudoHeaderOrder),
 	}
+}
+
+// intList and strList turn a possibly-nil slice into one that encodes as [].
+// Go's nil slice becomes JSON null, which is a different statement from "this
+// client offered none" and is not what the schema promises.
+func intList(in []uint8) []int {
+	out := make([]int, 0, len(in))
+	for _, v := range in {
+		out = append(out, int(v))
+	}
+	return out
+}
+
+func strList(in []string) []string {
+	if in == nil {
+		return []string{}
+	}
+	return in
 }
 
 func (resp Response) v1() payloadV1 {

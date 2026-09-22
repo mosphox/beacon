@@ -7,6 +7,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"golang.org/x/net/netutil"
 	"io"
 	"log"
 	"net"
@@ -100,8 +101,14 @@ func main() {
 	} else {
 		log.Println("no frontend configured; serving plain text to browsers")
 	}
-	if !cfg.TrustProxyHeaders {
-		log.Println("proxy headers are not trusted; using the connection peer address")
+	switch {
+	case cfg.ProxyProtocol:
+		log.Println("PROXY protocol in use: forwarded headers are stripped on every listener")
+	case cfg.TrustProxyHeaders:
+		log.Println("TRUST_PROXY_HEADERS is set: forwarded headers are believed. " +
+			"Only safe if every listener is unreachable except through your proxy")
+	default:
+		log.Println("proxy headers are stripped; using the connection peer address")
 	}
 
 	// The refresh loop is waited on at shutdown so that a download in progress
@@ -114,6 +121,16 @@ func main() {
 	}()
 
 	handler := srv.routes()
+
+	// Decided once, for every listener. This used to live inline here, gated on
+	// PROXY protocol and applied only to the TLS server, which left the plain
+	// listener — the one compose publishes — believing whatever a client sent.
+	// It is a named function so the decision itself can be tested; the bug was
+	// never in stripForwarded, it was in when it got used.
+	if !trustsForwardedHeaders(cfg) {
+		handler = stripForwarded(handler)
+	}
+
 	var wg sync.WaitGroup
 	var servers []*http.Server
 	serveErr := make(chan error, 2)
@@ -143,12 +160,6 @@ func main() {
 		log.Printf("serving HTTPS on %s for %s (PROXY protocol: %v)",
 			cfg.TLSListenAddr, strings.Join(cfg.Domains, ", "), cfg.ProxyProtocol)
 
-		if cfg.ProxyProtocol {
-			// The PROXY header already carries the true client address, so any
-			// forwarded header on this listener came from the client itself.
-			tlsSrv.Handler = stripForwarded(handler)
-			log.Println("PROXY protocol in use: ignoring forwarded headers on the TLS listener")
-		}
 		servers = append(servers, serve(&wg, tlsSrv, ln, serveErr))
 	}
 
@@ -226,6 +237,10 @@ func newHTTPServer(addr string, h http.Handler) *http.Server {
 			}
 			return ctx
 		},
+		// net/http's default is 1 MiB, which is far more header than this
+		// service has any use for and was the budget behind a User-Agent that
+		// cost seconds of CPU to match against.
+		MaxHeaderBytes:    32 << 10,
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      15 * time.Second,
@@ -236,7 +251,17 @@ func newHTTPServer(addr string, h http.Handler) *http.Server {
 // serve runs one listener. A failure is reported rather than fatal: log.Fatal
 // here would skip every defer and take the other, healthy listener down with
 // it. The caller shuts everything down in order instead.
+// maxConns bounds simultaneous connections per listener.
+//
+// Timeouts alone bound how long one connection lives, not how many exist. Each
+// costs a TLS session, the captured fingerprint and up to a megabyte of HTTP/2
+// frame buffer, all of it before a request arrives, so without a cap the
+// memory ceiling is whatever an attacker cares to open. Well above any real
+// load this service will see — it is a wall, not a throttle.
+const maxConns = 512
+
 func serve(wg *sync.WaitGroup, s *http.Server, ln net.Listener, fail chan<- error) *http.Server {
+	ln = netutil.LimitListener(ln, maxConns)
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
@@ -273,11 +298,47 @@ func probeHealth(listenAddr string) int {
 	return 0
 }
 
-// secureHeaders applies to everything we generate. Responses proxied from the
-// frontend keep whatever Next.js sets.
+// secureHeaders wraps the whole mux, including the frontend proxy, so these
+// reach the page as well as the API.
+//
+// The CSP is deliberately tight because it can be: next/font self-hosts the
+// two families at build time, so there is no font CDN to allow, and the page
+// only ever fetches its own path. 'unsafe-inline' for scripts is Next's inline
+// bootstrap, which cannot be removed without wiring per-request nonces.
+//
+// HSTS is only sent over TLS. Sending it from the plain listener would pin a
+// browser to HTTPS for a host that may not serve it.
 func secureHeaders(next http.Handler) http.Handler {
+	// AGPL-3.0 section 13 obliges a network service to offer its source to the
+	// users interacting with it. The page carries this in its footer; a client
+	// that only ever sees JSON or plain text needs it somewhere too, and the
+	// plain-text format is a fixed one line that cannot take it.
+	//
+	// A fork that modifies beacon and runs it must point this at their own
+	// source. That is the whole substance of the clause.
+	const sourceURL = "https://github.com/mosphox/beacon"
+
+	const csp = "default-src 'self'; " +
+		"script-src 'self' 'unsafe-inline'; " +
+		"style-src 'self' 'unsafe-inline'; " +
+		"font-src 'self'; " +
+		"img-src 'self' data:; " +
+		"connect-src 'self'; " +
+		"frame-ancestors 'none'; " +
+		"base-uri 'none'; " +
+		"form-action 'none'"
+
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("X-Content-Type-Options", "nosniff")
+		h := w.Header()
+		h.Set("X-Content-Type-Options", "nosniff")
+		h.Set("Content-Security-Policy", csp)
+		h.Set("Referrer-Policy", "no-referrer")
+		h.Set("X-Frame-Options", "DENY")
+		h.Set("X-Source-Code", sourceURL)
+		h.Set("Link", `<https://www.gnu.org/licenses/agpl-3.0.html>; rel="license"`)
+		if r.TLS != nil {
+			h.Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+		}
 		next.ServeHTTP(w, r)
 	})
 }
@@ -496,6 +557,16 @@ func ipCheckError(c ipCheck) (int, string) {
 // client address supplied out-of-band at the TCP layer. The HTTP headers in
 // that request come from the client itself, inside its own TLS session, so
 // they are attacker-controlled and must not be allowed to override it.
+// trustsForwardedHeaders reports whether this deployment should believe a
+// request's own X-Forwarded-For / X-Real-IP.
+//
+// Only when an operator has said so, and never alongside PROXY protocol: that
+// carries the true peer in the connection itself, so a forwarded header
+// arriving with it can only have been set by the client.
+func trustsForwardedHeaders(cfg config.Config) bool {
+	return cfg.TrustProxyHeaders && !cfg.ProxyProtocol
+}
+
 func stripForwarded(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		r.Header.Del("X-Real-IP")

@@ -13,7 +13,9 @@ import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 
 export function proxy(request: NextRequest): NextResponse {
-  if (process.env.NEXT_PUBLIC_USE_MOCK !== '1') {
+  if (
+    process.env.NODE_ENV === 'production' ||
+    process.env.NEXT_PUBLIC_USE_MOCK !== '1') {
     return NextResponse.next();
   }
 

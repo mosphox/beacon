@@ -2,7 +2,9 @@ package browser
 
 import (
 	"net/http"
+	"strings"
 	"testing"
+	"time"
 )
 
 func hdr(kv ...string) http.Header {
@@ -203,6 +205,47 @@ func TestLegacyAndInAppBrowsersAreNotBots(t *testing.T) {
 		h := hdr("User-Agent", ua, "Accept", navAccept, "Sec-Fetch-Dest", "document")
 		if !IsNavigation(h) {
 			t.Errorf("real browser denied the page: %q", ua)
+		}
+	}
+}
+
+// A User-Agent is attacker-controlled and reaches two large alternation
+// regexes. RE2 is linear in input times program size, so before this was
+// bounded a 1 MiB header — well inside net/http's default — cost about three
+// seconds of CPU for a single request, and IsNavigation scanned it twice.
+func TestHugeUserAgentIsBounded(t *testing.T) {
+	huge := strings.Repeat("a", 1<<20)
+
+	for name, call := range map[string]func(){
+		"IsBot":        func() { IsBot(huge) },
+		"IsNavigation": func() { IsNavigation(http.Header{"User-Agent": {huge}}) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			start := time.Now()
+			call()
+			// Generous on purpose: this is about the difference between
+			// microseconds and seconds, not about a precise budget.
+			if elapsed := time.Since(start); elapsed > 50*time.Millisecond {
+				t.Errorf("%s took %v for a 1 MiB User-Agent; input is not being bounded", name, elapsed)
+			}
+		})
+	}
+}
+
+// Clamping is a real behaviour change at the margin: a User-Agent that pads
+// 512 characters of filler in front of its bot token is no longer recognised
+// as a bot, and gets the HTML page instead of plain text. That is a deliberate
+// trade — anything doing it is evading on purpose — and this pins that real
+// agents are nowhere near the limit.
+func TestRealUserAgentsAreWellInsideTheClamp(t *testing.T) {
+	for _, ua := range []string{
+		"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+		"Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:133.0) Gecko/20100101 Firefox/133.0",
+		"curl/8.7.1",
+		"Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)",
+	} {
+		if len(ua) > maxUA {
+			t.Errorf("a real agent is longer than maxUA (%d > %d): %q", len(ua), maxUA, ua)
 		}
 	}
 }

@@ -229,3 +229,41 @@ func TestWantsPageOnlyHonouredFormatsSuppress(t *testing.T) {
 		}
 	}
 }
+
+// Whether forwarded headers are believed decides whether a stranger can choose
+// the address this service reports about them. It used to be decided inline in
+// main, gated on PROXY protocol, and applied to only one of the two listeners —
+// so the plain listener, which is the one compose publishes, trusted anything.
+func TestTrustsForwardedHeaders(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		trust         bool
+		proxyProtocol bool
+		want          bool
+		why           string
+	}{
+		{
+			name: "default", want: false,
+			why: "an untouched config must not believe a client's own headers",
+		},
+		{
+			name: "opted in", trust: true, want: true,
+			why: "an operator behind a proxy asked for this",
+		},
+		{
+			name: "proxy protocol alone", proxyProtocol: true, want: false,
+			why: "the peer is already authoritative",
+		},
+		{
+			name: "proxy protocol wins over the opt-in", trust: true, proxyProtocol: true, want: false,
+			why: "a forwarded header arriving with a PROXY header came from the client",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := config.Config{TrustProxyHeaders: tc.trust, ProxyProtocol: tc.proxyProtocol}
+			if got := trustsForwardedHeaders(cfg); got != tc.want {
+				t.Errorf("trustsForwardedHeaders = %v, want %v: %s", got, tc.want, tc.why)
+			}
+		})
+	}
+}

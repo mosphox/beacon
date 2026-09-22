@@ -19,6 +19,15 @@ export async function GET(
   // This endpoint ships in the production bundle but must never answer there: the Go
   // backend forwards unmatched browser navigations to Next, so an unguarded route would
   // serve fabricated lookups from the real origin.
+  if (process.env.NODE_ENV === 'production') {
+    // Not a guard that can be turned off. NEXT_PUBLIC_* is inlined into the
+    // client bundle but stays a live process.env read on the server, so the
+    // check below could be flipped by setting one variable on a running
+    // container — putting invented geolocation on the real origin, through a
+    // route the Go backend will happily proxy to.
+    return NextResponse.json({ detail: 'Not found' }, { status: 404 });
+  }
+
   if (process.env.NEXT_PUBLIC_USE_MOCK !== '1') {
     return NextResponse.json({ detail: 'Not found' }, { status: 404 });
   }

@@ -820,10 +820,30 @@ button.ip {
   text-align: center;
 }
 
+.state h1 {
+  font-size: 1.125rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+  text-wrap: balance;
+}
+
 .state p {
   color: var(--ink-2);
   font-weight: 300;
-  margin-bottom: 16px;
+  margin-top: 8px;
+  margin-bottom: 24px;
+  max-width: 46ch;
+}
+
+/* The error boundary's second line, which explains rather than restates. */
+.state-detail {
+  font-size: 0.875rem;
+  color: var(--ink-3);
+}
+
+.readout:focus-visible {
+  outline: none;
 }
 
 .retry {
@@ -900,4 +920,40 @@ button.ip {
   .copied {
     opacity: 1;
   }
+}
+
+/* ------------------------------------------------------------- colophon */
+
+/* The licence and attribution notices. Quiet, but on the page rather than only
+   in the README: AGPL section 13 and the GeoLite2 EULA both require the people
+   using the service to be able to see them. */
+.colophon {
+  margin-top: 64px;
+  padding-top: 24px;
+  border-top: 1px solid var(--rule);
+  font-size: 0.75rem;
+  font-weight: 300;
+  line-height: 1.6;
+  color: var(--ink-4);
+  max-width: 68ch;
+}
+
+.colophon p + p {
+  margin-top: 8px;
+}
+
+.colophon a {
+  color: var(--ink-3);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.colophon a:hover {
+  color: var(--ink-2);
+}
+
+.colophon a:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 2px;
 }
