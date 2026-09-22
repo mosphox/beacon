@@ -169,7 +169,7 @@ func main() {
 			log.Fatalf("listen on %s: %v", cfg.ListenAddr, err)
 		}
 		log.Printf("serving HTTP on %s", cfg.ListenAddr)
-		servers = append(servers, serve(&wg, newHTTPServer("", handler), ln, serveErr))
+		servers = append(servers, serve(&wg, newHTTPServer("", handler), netutil.LimitListener(ln, tlsserve.MaxConns), serveErr))
 	}
 
 	if len(servers) == 0 {
@@ -251,17 +251,7 @@ func newHTTPServer(addr string, h http.Handler) *http.Server {
 // serve runs one listener. A failure is reported rather than fatal: log.Fatal
 // here would skip every defer and take the other, healthy listener down with
 // it. The caller shuts everything down in order instead.
-// maxConns bounds simultaneous connections per listener.
-//
-// Timeouts alone bound how long one connection lives, not how many exist. Each
-// costs a TLS session, the captured fingerprint and up to a megabyte of HTTP/2
-// frame buffer, all of it before a request arrives, so without a cap the
-// memory ceiling is whatever an attacker cares to open. Well above any real
-// load this service will see — it is a wall, not a throttle.
-const maxConns = 512
-
 func serve(wg *sync.WaitGroup, s *http.Server, ln net.Listener, fail chan<- error) *http.Server {
-	ln = netutil.LimitListener(ln, maxConns)
 	wg.Add(1)
 	go func() {
 		defer wg.Done()

@@ -19,6 +19,7 @@ import (
 	"github.com/caddyserver/certmagic"
 	"github.com/libdns/cloudflare"
 	proxyproto "github.com/pires/go-proxyproto"
+	"golang.org/x/net/netutil"
 
 	"beacon/internal/tlsfp"
 )
@@ -104,11 +105,28 @@ func Config(ctx context.Context, opts Options) (*tls.Config, error) {
 // stream, so it must be read before TLS; the fingerprint wrapper sits between
 // that and TLS so the ClientHello handler has a connection to record against,
 // while RemoteAddr still comes from the PROXY header.
+// MaxConns bounds simultaneous connections per listener.
+//
+// Timeouts bound how long one connection lives, not how many exist. Each costs
+// a TLS session, the captured ClientHello and up to a megabyte of HTTP/2 frame
+// buffer, all before a request arrives, so without a cap the memory ceiling is
+// whatever an attacker cares to open. Well above any real load this will see.
+const MaxConns = 512
+
 func Listen(addr string, cfg *tls.Config, proxyProtocol bool) (net.Listener, error) {
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
 		return nil, fmt.Errorf("listen on %s: %w", addr, err)
 	}
+
+	// Innermost, under everything else. netutil wraps each accepted connection
+	// in an unexported type, and tlsfp.ConnFromNet reaches the fingerprint by
+	// walking *tls.Conn -> *tlsfp.Conn — so a limiter on the OUTSIDE leaves the
+	// server holding a type it cannot see through, and every TLS and HTTP/2
+	// fingerprint silently becomes null. Down here the chain the server sees is
+	// unchanged and the limit still holds, because closing any wrapper closes
+	// through to this one.
+	ln = netutil.LimitListener(ln, MaxConns)
 
 	if proxyProtocol {
 		ln = &proxyproto.Listener{

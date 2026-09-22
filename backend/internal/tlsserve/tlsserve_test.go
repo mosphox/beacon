@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/pires/go-proxyproto"
+
+	"beacon/internal/tlsfp"
 )
 
 func listener(t *testing.T, proxyProtocol bool) net.Listener {
@@ -144,5 +146,59 @@ func TestWithoutProxyProtocolAPlainConnectionIsAccepted(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("not accepted within 5s")
+	}
+}
+
+// The listener is a stack — limiter, PROXY protocol, fingerprint capture, TLS —
+// and the HTTP server reaches the captured ClientHello by type-asserting down
+// it. Anything inserted ABOVE the tls.Conn leaves the server holding a type it
+// cannot see through, and every TLS and HTTP/2 fingerprint silently becomes
+// null: no error, no log line, just the thing this service exists for quietly
+// absent. That happened, in production, to a connection limiter added for
+// unrelated reasons.
+func TestTheFingerprintSurvivesTheListenerStack(t *testing.T) {
+	for _, proxyProtocol := range []bool{false, true} {
+		name := "plain"
+		if proxyProtocol {
+			name = "proxy protocol"
+		}
+		t.Run(name, func(t *testing.T) {
+			ln := listener(t, proxyProtocol)
+
+			got := make(chan bool, 1)
+			go func() {
+				conn, err := ln.Accept()
+				if err != nil {
+					got <- false
+					return
+				}
+				defer conn.Close()
+				// Exactly what main's ConnContext does.
+				got <- tlsfp.ConnFromNet(conn) != nil
+			}()
+
+			c, err := net.Dial("tcp", ln.Addr().String())
+			if err != nil {
+				t.Fatalf("dial: %v", err)
+			}
+			defer c.Close()
+			if proxyProtocol {
+				client := &net.TCPAddr{IP: net.ParseIP("203.0.113.9"), Port: 51234}
+				edge := &net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: 443}
+				if _, err := proxyproto.HeaderProxyFromAddrs(2, client, edge).WriteTo(c); err != nil {
+					t.Fatalf("write header: %v", err)
+				}
+			}
+
+			select {
+			case ok := <-got:
+				if !ok {
+					t.Error("ConnFromNet found no fingerprint connection: something in the " +
+						"listener stack sits above the tls.Conn and the server cannot see through it")
+				}
+			case <-time.After(5 * time.Second):
+				t.Fatal("no result within 5s")
+			}
+		})
 	}
 }
