@@ -18,75 +18,10 @@ IP, at size, with nothing competing — and it does not scroll. The second holds
 else and scrolls inside itself. The page scrolls between the two and snaps, so each is
 arrived at whole rather than half-glimpsed.
 
-Mechanically they are two views in one viewport, both `position: absolute; inset: 0`, and
-**there is no scroll between them at all**. The hero does not scroll. The readout scrolls
-normally inside itself. The step between them is a gesture, handled entirely in script,
-and the view that is not showing is `inert`.
-
-That is a deliberate replacement for scroll snapping, which was tried and does not fit
-this page. Snapping still has to be *scrolling*, so there is always a position halfway
-between the two views, and mandatory snapping commits on the smallest flick — one notch of
-a wheel and the page has changed under you. Neither is right for a movement of a whole
-screen.
-
-**The step is earned, not triggered.** What moves you is a *rate*: the script sums the
-scrolling done in the **last half second**, continuously, and plays the change once that
-sum passes **420px** — 840px a second. Input older than the window stops counting, so the
-sum falls on its own and a slow drift never arrives however long it is kept up. It has to
-be one committed flick.
-
-**Inertia does not count.** macOS keeps sending wheel events for a second or two after the
-fingers lift, and while they were counted the budget was mostly being filled *after* the
-gesture was over: you flicked, let go, and only then did the bar finish and the view
-change. Ignoring them is what lets the threshold be this low, and it is why the change now
-lands while your fingers are still moving — measured at 174ms into a firm swipe, against a
-440px finger phase. It also stops the tail of a flick scrolling the readout on its own
-once the swap has landed. `WheelEvent.momentum` is Chrome 151 and up; where it is missing,
-inertia counts the way it used to everywhere.
-
-The half-second window does two jobs. It sets that rate, and it means the gauge has almost
-nothing left to drain by the time you have let go.
-
-Touch is measured against the same threshold but counts for `PULL_THRESHOLD / 440` times
-its raw travel, so a phone is always asking for about half a screen. The gain is tied to
-the threshold rather than fixed on purpose: a finger moves one pixel per pixel where a
-wheel notch is worth a hundred, so raising the threshold to make a trackpad work harder
-would otherwise ask a phone for more than a whole screen inside the window, which is not a
-hard gesture but an impossible one.
-
-At 840px/s every input device can reach this: a mouse wheel needs about five notches
-inside the window, where at 2800px/s a fast spin topped out at two thirds of the gauge and
-stopped there — a progress indicator that filled and then refused, which is the exact
-failure the gauge exists to prevent. The scroll cue, the skip button and the arrow, page
-and Home keys still cross without having to earn it.
-
-It listens in the two places a change is what the scrolling could mean: anywhere on the
-hero, and on the readout only when it is already at its own top.
-
-Pushing the other way cancels the pull, but only a push worth about a third of a wheel
-notch counts as one. A trackpad emits zero and wrong-signed pixels constantly — at the
-start and end of a flick, and whenever the fingers drift diagonally — and reading those
-as a change of mind emptied the window mid-gesture. Single-pixel noise is neither
-progress nor a reversal.
-
-**The pull is drawn while it builds**, as `--pull` from 0 to 1: a hairline that grows from
-the edge you are pulling toward, the cue taking the accent colour, and the hero leaning
-into the movement the swap will finish. This is the whole reason to measure a rate rather
-than a total — a threshold you cannot see coming is indistinguishable from a page that has
-stopped responding.
-
-The gauge is eased rather than drawn straight from the sum, which is not something anyone
-would want to watch: samples leave the window one at a time so it steps downward, and
-trackpad momentum makes it jump on the way up. It chases the measurement with an
-exponential, quick up and a little gentler down, and goes home as soon as the input stops
-rather than waiting out the rest of the window. How much silence counts as stopping is
-measured from the gaps the device itself has been leaving — a trackpad reporting every
-10ms is released almost at once, a mouse wheel at a brisk spin is given the room not to
-collapse between notches. Commits are decided on the measurement and never on the drawn
-value, so none of the smoothing costs responsiveness.
-
-Arrow, page and Home keys do the same job without having to earn it, and so do the cue and
-the skip link. They are already deliberate acts; it was the flick that was too cheap.
+Mechanically that is a deck with `scroll-snap-type: y mandatory` and exactly two panels of
+one viewport each. The readout's own scrolling happens inside its panel, which is why
+there are only ever two snap points — a taller second section would make mandatory
+snapping fight every scroll through it.
 
 Not this: identical rounded cards with the same shadow under each, a tracked-out ALL-CAPS
 label above every section, a fade-and-slide-up as each section scrolls into view, `→`
@@ -215,14 +150,6 @@ the token is reserved for sources agreeing.
 One orchestrated moment: the hero fades up once on load, and the glow behind the address
 pulls from a wide blur into focus. Nothing else animates on scroll, and the address's
 gradient no longer drifts — the arrival is the moment.
-
-The view change is the one other piece of motion, and it is a change of place rather than
-decoration: the readout rises into position while the hero recedes — up 22%, down to 0.96,
-blurred and gone over 720ms, with the fade and the blur finishing first so the arriving
-view is already solid while it travels the last of the distance. The hero travels less than the readout and softens as it
-goes, so the two read as depth rather than as two slides passing each other. Ancestor
-transform, opacity and blur are all safe over the address's clipped gradient; only the
-address element itself is off limits.
 
 **The address element itself must never be animated directly.** It carries a
 `background-clip: text` gradient, and anything that gives it or its children a painting

@@ -44,9 +44,6 @@ export default function BeaconView() {
   const [snap, setSnap] = useState(false);
   const snapTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [showAll, setShowAll] = useState<Record<string, boolean>>({});
-  const [view, setView] = useState<View>('hero');
-  const stageRef = useRef<HTMLElement>(null);
-  const heroRef = useRef<HTMLElement>(null);
   const readoutRef = useRef<HTMLElement>(null);
   const addressRef = useRef<HTMLButtonElement>(null);
   const reducedMotion = useReducedMotion();
@@ -100,24 +97,6 @@ export default function BeaconView() {
 
   useEffect(() => () => void (snapTimer.current && clearTimeout(snapTimer.current)), []);
 
-  usePull(stageRef, readoutRef, view, setView, status === 'ready' && data !== null);
-
-  // The view that leaves becomes inert, so anything focused inside it would be orphaned
-  // and focus would fall back to the document. Move it into the view that arrived instead,
-  // whether the change came from a gesture, a key or a button.
-  const firstView = useRef(true);
-  useEffect(() => {
-    if (firstView.current) {
-      firstView.current = false;
-      return;
-    }
-    // The view container, not the control inside it. Focusing the address would paint a
-    // ring around the hero for someone who only scrolled, and landing on the container
-    // puts the tab sequence at the start of what is now on screen.
-    const target = view === 'readout' ? readoutRef.current : heroRef.current;
-    target?.focus({ preventScroll: true });
-  }, [view]);
-
   function copy() {
     if (!data?.ip || !navigator.clipboard) return;
 
@@ -169,19 +148,12 @@ export default function BeaconView() {
         </output>
       ) : null}
 
-      {/* A button, not a link: there is no longer a place to navigate to. The readout
-          is a view this switches to, and the hidden one is inert, so an in-page anchor
-          would point at something no one can reach. */}
-      <button type="button" className="skip" onClick={() => setView('readout')}>
+      <a className="skip" href="#readout">
         Skip to connection details
-      </button>
+      </a>
 
-      <main className="stage" ref={stageRef} data-view={view}>
-        {/* The gauge for the pull. It grows from the edge you are pulling toward, so the
-            threshold is something you can see coming rather than a cliff. */}
-        <span className="pull-gauge" aria-hidden="true" />
-
-        <section className="view hero" ref={heroRef} tabIndex={-1} inert={view !== 'hero'}>
+      <main className="deck">
+        <section className="panel hero">
           <div
             className="hero-inner"
             /* Genuinely runtime-computed: the whole hero is sized from the address's
@@ -235,7 +207,7 @@ export default function BeaconView() {
             <button
               type="button"
               className="scroll-cue"
-              onClick={() => setView('readout')}
+              onClick={() => readoutRef.current?.scrollIntoView({ block: 'start' })}
               aria-label="Scroll to connection details"
             >
               <svg width="20" height="20" viewBox="0 0 12 12" aria-hidden="true">
@@ -253,12 +225,7 @@ export default function BeaconView() {
         </section>
 
         {!loading ? (
-          <section
-            className="view readout-panel"
-            ref={readoutRef}
-            tabIndex={-1}
-            inert={view !== 'readout'}
-          >
+          <section className="panel readout-panel" ref={readoutRef}>
             <div className="readout" id="readout">
               <Connection data={data} />
               <LocationSection data={data} />
@@ -296,372 +263,6 @@ function HeroPlace({ data }: { data: BeaconResponse }) {
       {network.asn_label ? <p className="hero-asn">{network.asn_label}</p> : null}
     </>
   );
-}
-
-/* ---------------------------------------------------------------- the pull */
-
-/**
- * How much scrolling, inside the last second, moves you to the other view.
- * Roughly six notches of a mouse wheel, or one decisive trackpad swipe.
- */
-const PULL_THRESHOLD = 420;
-
-/**
- * The window the pull is measured over. Older input has simply stopped counting.
- *
- * Half a second rather than a whole one, which does two things at once: the gauge has
- * nothing left to drain almost as soon as you let go, and the same threshold now asks for
- * twice the rate — 1400px a second, where a full-second window wanted 600.
- */
-const PULL_WINDOW = 500;
-
-/**
- * How much silence counts as letting go, as a multiple of the gaps the device has been
- * leaving between events, and the bounds that multiple is held inside.
- *
- * A fixed value has to be set for the slowest input that is still one continuous push —
- * a mouse wheel at a brisk spin leaves 60-100ms between notches — and a trackpad, which
- * reports every 8-16ms, then waits out a grace period it never needed. Measuring the
- * device's own rhythm lets the gauge go home almost at once on a trackpad without
- * collapsing between notches on a wheel.
- */
-const RELEASE_GAPS = 2.2;
-const RELEASE_MIN = 45;
-const RELEASE_MAX = 220;
-
-/** Time constants for the gauge chasing the measurement: quick up, quick down. */
-const RISE_TAU = 50;
-const FALL_TAU = 45;
-
-/**
- * Touch counts for more than its raw travel. A finger moves one pixel per pixel, while a
- * wheel notch is worth a hundred, so at the raw threshold a phone would need more than a
- * whole screen swiped inside the window — not a hard gesture, an impossible one. The gain
- * is tied to the threshold rather than fixed, so raising one to make a trackpad work
- * harder does not quietly take the page away from anyone on a phone. Half a screen.
- */
-const TOUCH_GAIN = PULL_THRESHOLD / 440;
-
-/** How long the view change takes; must match the transition in globals.css. */
-const SWAP_MS = 720;
-
-/**
- * A line and a page, for wheels that report their delta in them rather than pixels.
- *
- * `deltaY` is read first on purpose: Gecko hands pixel units to pages that never ask
- * about `deltaMode` and switches to line units for pages that do, so touching
- * `deltaMode` first opts Firefox into the worse unit and then needs a magic number to
- * undo it. Chrome and Safari never emit line deltas at all. The line branch stays as a
- * fallback rather than an expectation — if it is ever reached, 40 is nearer a notch than
- * treating 3 lines as 3 pixels would be.
- *
- * `page` is a thunk because the page branch essentially never fires, and reading
- * `clientHeight` eagerly on every wheel event is a layout read for nothing.
- */
-function wheelPixels(e: WheelEvent, page: () => number): number {
-  const dy = e.deltaY;
-  if (e.deltaMode === 1) return dy * 40;
-  if (e.deltaMode === 2) return dy * page();
-  return dy;
-}
-
-/**
- * Below this a delta is noise rather than direction. A trackpad emits zero and
- * single-pixel deltas constantly — at the start and end of a flick, and whenever the
- * fingers drift diagonally.
- */
-const NOISE_PX = 1;
-
-/**
- * And this is what a push the other way has to be worth before it counts as changing
- * your mind. About a third of a wheel notch.
- *
- * Without it, any stray backwards pixel emptied the whole window mid-gesture: 800, −1,
- * 800 is 1600px of travel against a 1400px threshold and it did not cross.
- */
-const REVERSE_PX = 40;
-
-/**
- * Whether the browser will tell us that a wheel event is inertia rather than a hand.
- *
- * `WheelEvent.momentum` is Chrome 151 and up; Firefox and Safari do not expose it, and
- * absence has to read as "not momentum" rather than as "unknown", so those browsers keep
- * counting inertia the way every browser used to.
- */
-const HAS_MOMENTUM = typeof WheelEvent !== 'undefined' && 'momentum' in WheelEvent.prototype;
-
-/** Finds a touch by identity. Index is not identity once a second finger is down. */
-function touchById(list: TouchList, id: number): Touch | null {
-  for (let i = 0; i < list.length; i += 1) {
-    if (list[i].identifier === id) return list[i];
-  }
-  return null;
-}
-
-type View = 'hero' | 'readout';
-
-/**
- * Switching views is a gesture, not a scroll.
- *
- * There is no scroll position between the two views to be in the middle of — the hero
- * does not scroll at all, and the readout scrolls normally within itself. What moves you
- * between them is a *rate*: the script sums the scrolling you did in the last second,
- * continuously, and once that sum passes PULL_THRESHOLD it plays the change. Input older
- * than the window stops counting, so the sum falls on its own and a slow drift never
- * arrives. It has to be one committed push.
- *
- * The pull is published as `--pull`, 0 to 1, for the gauge to draw. Feedback is the whole
- * reason to measure a rate rather than a total: a threshold you cannot see coming is
- * indistinguishable from a page that has stopped responding.
- *
- * It listens in the two places a change is what the scrolling could mean: anywhere on the
- * hero, and on the readout only when it is already at its own top.
- */
-function usePull(
-  stageRef: React.RefObject<HTMLElement | null>,
-  readoutRef: React.RefObject<HTMLElement | null>,
-  view: View,
-  setView: (v: View) => void,
-  enabled: boolean,
-) {
-  // The listeners outlive any one view, so they read it from a ref rather than being
-  // torn down and re-registered every time it changes.
-  const viewRef = useRef(view);
-  useEffect(() => {
-    viewRef.current = view;
-  }, [view]);
-
-  useEffect(() => {
-    const stage = stageRef.current;
-    if (!stage || !enabled) return;
-
-    /** Recent input, newest last, as [timestamp, pixels]. */
-    let samples: [number, number][] = [];
-    /** What the gauge is drawing, which chases the measurement rather than being it. */
-    let shown = 0;
-    let lastInput = 0;
-    let lastFrame = 0;
-    /** Smoothed gap between input events, which is what release is measured against. */
-    let inputGap = RELEASE_MAX;
-    let raf = 0;
-    let swapping = false;
-    let touchId: number | null = null;
-    let touchY: number | null = null;
-    let unswap: ReturnType<typeof setTimeout> | null = null;
-
-    const paint = () => {
-      stage.style.setProperty('--pull', shown.toFixed(3));
-      stage.classList.toggle('pulling', shown > 0.02);
-    };
-
-    /** Drops what has aged out and returns what is left. */
-    const total = (now: number) => {
-      samples = samples.filter(([t]) => now - t < PULL_WINDOW);
-      return samples.reduce((sum, [, d]) => sum + d, 0);
-    };
-
-    /**
-     * The gauge is eased rather than drawn straight from the sum.
-     *
-     * The raw measurement is not something you would want to watch: samples fall out of
-     * the window one at a time, so it goes down in steps, and trackpad momentum makes it
-     * jump on the way up. Chasing it with an exponential smooths both, and an asymmetric
-     * time constant keeps it honest — it answers input almost at once and lets go a
-     * little more gently. Commits are decided on the measurement, never on this, so none
-     * of the smoothing costs responsiveness.
-     */
-    const frame = (now: number) => {
-      // rAF is handed the frame's vsync timestamp, which Chrome takes *before* input is
-      // dispatched — so a frame entered from the wheel handler arrives with `now` a
-      // fraction of a millisecond in the past, and an unclamped dt steps the gauge
-      // backwards on the first frame of every pull.
-      const dt = Math.min(64, Math.max(0, now - lastFrame));
-      lastFrame = now;
-
-      const measured = Math.min(1, total(now) / PULL_THRESHOLD);
-      // Let go and it goes home, rather than waiting out the rest of the window.
-      const release = Math.min(RELEASE_MAX, Math.max(RELEASE_MIN, inputGap * RELEASE_GAPS));
-      const target = now - lastInput > release ? 0 : measured;
-      const tau = target > shown ? RISE_TAU : FALL_TAU;
-      shown += (target - shown) * (1 - Math.exp(-dt / tau));
-
-      if (shown < 0.004 && target === 0) {
-        shown = 0;
-        paint();
-        raf = 0;
-        return;
-      }
-      paint();
-      raf = requestAnimationFrame(frame);
-    };
-
-    const run = () => {
-      if (raf) return;
-      lastFrame = performance.now();
-      raf = requestAnimationFrame(frame);
-    };
-
-    const swap = (to: View) => {
-      swapping = true;
-      samples = [];
-      shown = 0;
-      paint();
-      if (raf) cancelAnimationFrame(raf);
-      raf = 0;
-      setView(to);
-      if (unswap) clearTimeout(unswap);
-      unswap = setTimeout(() => {
-        swapping = false;
-      }, SWAP_MS);
-    };
-
-    /** Is a push in this direction something this view can answer? */
-    const accepts = (down: boolean) => {
-      if (viewRef.current === 'hero') return down;
-      if (!down) {
-        const readout = readoutRef.current;
-        return !!readout && readout.scrollTop <= 0;
-      }
-      return false;
-    };
-
-    const push = (delta: number) => {
-      if (swapping) return false;
-      if (Math.abs(delta) < NOISE_PX) return false;
-
-      const down = delta > 0;
-      if (!accepts(down)) {
-        // A real push the other way is a change of mind. A stray pixel is not, and
-        // treating it as one threw away everything earned so far.
-        if (Math.abs(delta) >= REVERSE_PX) samples = [];
-        return false;
-      }
-
-      const now = performance.now();
-      // Only gaps inside a continuous push describe the device; the pause before one
-      // starts would otherwise be read as a very slow wheel.
-      const gap = now - lastInput;
-      if (gap < RELEASE_MAX) inputGap = inputGap * 0.7 + gap * 0.3;
-      else inputGap = RELEASE_MAX;
-      lastInput = now;
-      samples.push([now, Math.abs(delta)]);
-
-      if (total(now) >= PULL_THRESHOLD) {
-        swap(viewRef.current === 'hero' ? 'readout' : 'hero');
-        return true;
-      }
-
-      run();
-      return true;
-    };
-
-    const onWheel = (e: WheelEvent) => {
-      // ctrlKey on a wheel event is a pinch or a browser zoom, not a scroll. Claiming
-      // it would drive the gesture from a gesture that means something else, and
-      // preventDefault on it takes zoom away from anyone who needs it.
-      if (e.ctrlKey) return;
-
-      // Inertia is not a push. macOS keeps sending wheel events for a second or two
-      // after the fingers lift, and counting them meant the budget was mostly filled
-      // after the gesture was over — so the bar finished and the view changed once you
-      // had already let go. Ignoring them also stops the tail of a flick scrolling the
-      // readout on its own once the swap has landed.
-      if (HAS_MOMENTUM && (e as WheelEvent & { momentum?: boolean }).momentum) return;
-
-      const claimed = push(wheelPixels(e, () => stage.clientHeight));
-      // Only swallow what the gesture is actually using; the readout must stay
-      // ordinarily scrollable everywhere else.
-      if (claimed || swapping) e.preventDefault();
-    };
-
-    const forget = () => {
-      touchId = null;
-      touchY = null;
-    };
-
-    const onTouchStart = (e: TouchEvent) => {
-      // One finger only. A second one is a pinch or a stray palm, and neither is this.
-      if (e.touches.length !== 1) return forget();
-      touchId = e.touches[0].identifier;
-      touchY = e.touches[0].clientY;
-    };
-
-    const onTouchMove = (e: TouchEvent) => {
-      if (touchId === null || touchY === null) return;
-      if (e.touches.length !== 1) return forget();
-
-      // By identity, not by index. When one finger of two lifts, touches[0] becomes the
-      // other one, and the jump between them is the distance between the fingers rather
-      // than any travel — enough, at this gain, to swap the view with nothing moving.
-      const t = touchById(e.touches, touchId);
-      if (!t) return;
-
-      const delta = touchY - t.clientY;
-      touchY = t.clientY;
-      if (push(delta * TOUCH_GAIN)) e.preventDefault();
-    };
-
-    // Arrow and page keys do the same job without having to earn it. They are already
-    // deliberate, and making someone hammer a key to cross a threshold would be absurd.
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (swapping || e.metaKey || e.ctrlKey || e.altKey) return;
-
-      // Anything that takes keys of its own keeps them. Space especially: it belongs to
-      // whatever is focused, and on the hero that is the address, whose whole job is to
-      // copy. Exempting only form fields meant Space on the page's primary control
-      // changed the view and never copied anything.
-      // The listener is on window, so the target is not always an element — it is the
-      // document, or window itself, when nothing is focused.
-      const target = e.target instanceof Element ? e.target : null;
-      if (
-        target &&
-        ((target instanceof HTMLElement && target.isContentEditable) ||
-          target.closest('input, textarea, select, button, a[href], summary, [role="button"]'))
-      ) {
-        return;
-      }
-
-      // Shift+Space is page-up by convention, not another page-down.
-      const space = e.key === ' ';
-      const forward = e.key === 'PageDown' || e.key === 'ArrowDown' || (space && !e.shiftKey);
-      const back =
-        e.key === 'PageUp' || e.key === 'ArrowUp' || e.key === 'Home' || (space && e.shiftKey);
-
-      if (viewRef.current === 'hero' && forward) {
-        e.preventDefault();
-        swap('readout');
-      } else if (viewRef.current === 'readout' && back) {
-        const readout = readoutRef.current;
-        if (readout && readout.scrollTop <= 0) {
-          e.preventDefault();
-          swap('hero');
-        }
-      }
-    };
-
-    stage.addEventListener('wheel', onWheel, { passive: false });
-    stage.addEventListener('touchstart', onTouchStart, { passive: true });
-    stage.addEventListener('touchmove', onTouchMove, { passive: false });
-    stage.addEventListener('touchend', forget, { passive: true });
-    // The UA fires this when it takes the pointer for a viewport pan, on palm
-    // rejection, or when a modal opens. It is not preventable, so the only correct
-    // response is to let go of the gesture.
-    stage.addEventListener('touchcancel', forget, { passive: true });
-    window.addEventListener('keydown', onKeyDown);
-
-    return () => {
-      stage.removeEventListener('wheel', onWheel);
-      stage.removeEventListener('touchstart', onTouchStart);
-      stage.removeEventListener('touchmove', onTouchMove);
-      stage.removeEventListener('touchend', forget);
-      stage.removeEventListener('touchcancel', forget);
-      window.removeEventListener('keydown', onKeyDown);
-      if (raf) cancelAnimationFrame(raf);
-      if (unswap) clearTimeout(unswap);
-      stage.style.removeProperty('--pull');
-      stage.classList.remove('pulling');
-    };
-  }, [stageRef, readoutRef, setView, enabled]);
 }
 
 /* --------------------------------------------------------------- connection */
