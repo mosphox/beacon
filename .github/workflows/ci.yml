@@ -49,7 +49,10 @@ jobs:
       - name: every test file is tracked
         run: |
           on_disk=$(find backend -name '*_test.go' | sort)
-          tracked=$(git ls-files 'backend/**/*_test.go' | sort)
+          # Not a '**' pathspec: git requires an intervening directory after
+          # it, so backend/main_test.go silently did not match and this check
+          # failed on its own first run.
+          tracked=$(git ls-files -- backend | grep '_test\.go$' | sort)
           if [ -z "$tracked" ]; then
             echo "no test files are tracked by git"; exit 1
           fi
