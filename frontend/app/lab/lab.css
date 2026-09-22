@@ -139,6 +139,20 @@
   pointer-events: none;
 }
 
+/* The wave needs each character to move on its own. Only the glow may be split like
+   this: it is flat colour, so a per-character transform costs it nothing, while the
+   same treatment on .demo-text would destroy the clipped gradient. */
+.glow-ch {
+  display: inline-block;
+}
+
+/* Blurring 12 separate boxes is heavier than blurring one line, so the wave gets a
+   softer blur to stay cheap and still read as light rather than as text. */
+.v-wave .demo-glow {
+  filter: blur(16px);
+  opacity: 0.7;
+}
+
 .ip-bracket {
   font-weight: 300;
   color: var(--accent);
@@ -159,253 +173,25 @@
   transform: none;
 }
 
-/* ========================================================= click responses */
-
-/* A — ripple */
-.c-ripple .ring {
-  position: absolute;
-  inset: 0;
-  border: 1px solid var(--accent);
-  border-radius: 6px;
-  opacity: 0;
-  pointer-events: none;
-}
-
-.c-ripple.go .ring {
-  animation: ring 640ms cubic-bezier(0.2, 0, 0, 1);
-}
-
-@keyframes ring {
-  from {
-    opacity: 0.7;
-    transform: scale(0.96);
-  }
-  to {
-    opacity: 0;
-    transform: scale(1.22);
-  }
-}
-
-/* C — brackets snap shut */
-.c-snap .ip-bracket {
-  opacity: 0.8;
-  transform: none;
-}
-
+/* The bracket snap as it ships, on every variant, so each one is judged in the
+   company it will actually keep. */
 .c-snap.go .ip-bracket {
-  transition: transform 180ms cubic-bezier(0.2, 0, 0, 1);
+  opacity: 0.95;
+  transition:
+    opacity 45ms ease-out,
+    transform 45ms cubic-bezier(0.3, 0, 0, 1);
 }
 
 .c-snap.go .ip-bracket.left {
-  transform: translateX(0.3em);
+  transform: translateX(0.17em);
 }
 
 .c-snap.go .ip-bracket.right {
-  transform: translateX(-0.3em);
-}
-
-/* D — the address becomes the confirmation */
-.c-inplace .demo-text,
-.c-inplace .demo-glow {
-  transition: none;
-}
-
-.c-inplace.go .demo-text {
-  background-image: linear-gradient(100deg, #34d399, #6ee7b7);
-  background-clip: text;
-  -webkit-background-clip: text;
-}
-
-.c-inplace.go .demo-glow {
-  color: #34d399;
-}
-
-/* E — one wash of colour through the glyphs */
-.c-wash .demo-text {
-  background-image: linear-gradient(
-    100deg,
-    #67e8f9 0%,
-    #a78bfa 22%,
-    #f0abfc 45%,
-    #67e8f9 55%,
-    #a78bfa 78%,
-    #f0abfc 100%
-  );
-  background-size: 200% 100%;
-  background-position: 0% center;
-}
-
-.c-wash.go .demo-text {
-  transition: background-position 800ms cubic-bezier(0.2, 0, 0, 1);
-  background-position: 100% center;
-}
-
-/* =========================================================== notifications */
-
-.note-stage {
-  position: relative;
-  display: grid;
-  place-items: center;
-  width: 100%;
-  min-height: 170px;
-}
-
-.note-stage.column {
-  gap: 12px;
-  grid-auto-flow: row;
-}
-
-.note {
-  font-family: var(--font-outfit), sans-serif;
-  font-size: 0.875rem;
-  font-weight: 300;
-  letter-spacing: 0;
-}
-
-/* 1 — the pill that ships today */
-.note-pill {
-  position: absolute;
-  top: 0;
-  left: 50%;
-  transform: translateX(-50%);
-  background: rgb(16 185 129 / 0.15);
-  backdrop-filter: blur(12px) saturate(180%);
-  -webkit-backdrop-filter: blur(12px) saturate(180%);
-  color: var(--ink);
-  padding: 12px 24px;
-  border-radius: 2rem;
-  border: 1px solid rgb(255 255 255 / 0.15);
-  box-shadow: 0 4px 24px rgb(0 0 0 / 0.15);
-  animation: toast 1.9s ease-in-out forwards;
-}
-
-@keyframes toast {
-  0% {
-    opacity: 0;
-  }
-  10%,
-  85% {
-    opacity: 1;
-  }
-  100% {
-    opacity: 0;
-  }
-}
-
-/* 2 — a line under the address, holding its own space */
-.note-under {
-  color: var(--ok);
-  opacity: 0;
-  transform: translateY(-4px);
-  transition:
-    opacity 180ms ease-out,
-    transform 180ms cubic-bezier(0.2, 0, 0, 1);
-}
-
-.note-under.open {
-  opacity: 1;
-  transform: none;
-}
-
-/* 3 — the label reports it */
-.note-label {
-  display: grid;
-  font-family: var(--font-outfit), sans-serif;
-  font-size: 0.8125rem;
-  font-weight: 300;
-  letter-spacing: 0.3em;
-  text-transform: uppercase;
-  color: var(--ink-3);
-}
-
-.note-label span {
-  grid-area: 1 / 1;
-  transition: opacity 160ms ease-out;
-}
-
-.note-label span:last-child {
-  opacity: 0;
-  color: var(--ok);
-}
-
-.note-label span.off {
-  opacity: 0;
-}
-
-.note-label span.on {
-  opacity: 1;
-}
-
-/* 4 — a tick beside the address */
-.note-tick {
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--ok);
-  white-space: nowrap;
-  opacity: 0;
-  transform: translate(calc(-50% + 40px), -50%);
-  transition:
-    opacity 200ms ease-out,
-    transform 200ms cubic-bezier(0.2, 0, 0, 1);
-  pointer-events: none;
-}
-
-.note-tick.open {
-  opacity: 1;
-  /* Clears the address rather than sitting on it; the offset is deliberate. */
-  transform: translate(calc(-50% + 240px), -50%);
-}
-
-/* 5 — a status bar, the way a terminal reports */
-.note-bar {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 16px;
-  background: rgb(0 0 0 / 0.35);
-  border-top: 1px solid var(--rule-strong);
-  font-family: var(--font-jetbrains), monospace;
-  font-size: 0.75rem;
-  color: var(--ink-2);
-  opacity: 0;
-  transform: translateY(100%);
-  transition:
-    opacity 200ms ease-out,
-    transform 200ms cubic-bezier(0.2, 0, 0, 1);
-}
-
-.note-bar.open {
-  opacity: 1;
-  transform: none;
-}
-
-.note-bar .dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--ok);
+  transform: translateX(-0.17em);
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .c-ripple.go .ring,
-  .note-pill {
-    animation: none;
-  }
-
-  .ip-bracket,
-  .c-wash.go .demo-text,
-  .note-under,
-  .note-label span,
-  .note-tick,
-  .note-bar {
+  .ip-bracket {
     transition: none;
   }
 }

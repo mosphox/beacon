@@ -1,95 +1,95 @@
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 
-import {
-  Flare,
-  InPlace,
-  LabelSwap,
-  Ripple,
-  Silent,
-  Snap,
-  StatusBar,
-  Tick,
-  TopPill,
-  UnderLine,
-  Wash,
-} from './variants';
+import { Depth, GlowWave, Keypress, Pop, Punch, Settle, Squash, Tighten, Tilt } from './variants';
 import './lab.css';
 
 export const metadata: Metadata = {
-  title: 'Beacon — click and notification variants',
+  title: 'Beacon — address motion variants',
   robots: { index: false, follow: false },
 };
 
-const CLICKS = [
+const SCALING = [
   {
-    id: 'ripple',
-    name: 'Ripple',
-    note: 'A ring expands out of the address and fades, the way a tap leaves a mark. Reads as "received" without saying anything.',
-    render: <Ripple />,
+    id: 'punch',
+    name: 'Punch',
+    note: 'Down hard to 0.93, back past the resting size to 1.025, then settles. The overshoot is what makes it read as a physical object rather than a number changing size.',
+    render: <Punch />,
   },
   {
-    id: 'flare',
-    name: 'Flare',
-    note: 'The glow behind the address flares and settles. The address never moves; only the light around it reacts.',
-    render: <Flare />,
+    id: 'pop',
+    name: 'Pop',
+    note: 'The other direction — 1.05 and back. The value jumps toward you instead of away, which reads as the page answering rather than as you pressing.',
+    render: <Pop />,
   },
   {
-    id: 'snap',
-    name: 'Brackets snap shut',
-    note: 'The brackets already there for hover close hard against the address and spring back — the same object doing two jobs.',
-    render: <Snap />,
+    id: 'squash',
+    name: 'Squash and stretch',
+    note: 'Wider and flatter, then narrower and taller, then rest. The volume looks preserved, so the address behaves like something with mass.',
+    render: <Squash />,
   },
   {
-    id: 'inplace',
-    name: 'Becomes the confirmation',
-    note: 'The address turns green and reads "copied", then returns. Strongest signal of the set, at the cost of hiding the value for a moment.',
-    render: <InPlace />,
-  },
-  {
-    id: 'wash',
-    name: 'Colour washes through',
-    note: 'One pass of the gradient across the glyphs, left to right. Quietest of the five.',
-    render: <Wash />,
+    id: 'settle',
+    name: 'Settle',
+    note: 'No travel inward at all: it is already at 0.95 by the time you see it and eases back over 420ms. Asymmetric, so it feels like release rather than a round trip.',
+    render: <Settle />,
   },
 ];
 
-const NOTES = [
+const MOVEMENT = [
   {
-    id: 'pill',
-    name: 'Pill at the top',
-    note: 'What ships today. Clear, but it appears a long way from where the click happened.',
-    render: <TopPill />,
+    id: 'keypress',
+    name: 'Keypress',
+    note: 'Six pixels straight down and back, the way a key travels under a finger. The only variant where the address changes position rather than size.',
+    render: <Keypress />,
   },
   {
-    id: 'under',
-    name: 'A line underneath',
-    note: 'Directly below the address, holding its own space so nothing shifts when it appears.',
-    render: <UnderLine />,
+    id: 'depth',
+    name: 'Depth',
+    note: 'Pushed 90px into the screen under a 900px perspective. It foreshortens rather than simply shrinking, so it recedes instead of getting smaller.',
+    render: <Depth />,
   },
   {
-    id: 'label',
-    name: 'The label reports it',
-    note: 'The label above stops naming the value and says what happened, then changes back. No new element enters the page.',
-    render: <LabelSwap />,
+    id: 'tilt',
+    name: 'Tilt',
+    note: 'The top edge rotates 14° away from you, hinged at the baseline. The most physical of the set and the most obviously an effect.',
+    render: <Tilt />,
+  },
+];
+
+const GLYPH = [
+  {
+    id: 'tighten',
+    name: 'Tighten',
+    note: 'Letter-spacing contracts from −0.02em to −0.09em and releases. The glyphs themselves close up, and because the brackets are flex siblings they follow the address inward without being told to — the snap and the squeeze become one movement.',
+    render: <Tighten />,
   },
   {
-    id: 'tick',
-    name: 'A tick alongside',
-    note: 'A check mark slides out beside the address and holds. Reads instantly, says nothing to read.',
-    render: <Tick />,
+    id: 'wave',
+    name: 'Glow wave',
+    note: 'The address does not move at all. A ripple runs left to right through the blurred copy behind it, 22ms apart per character, so the light reacts and the value stays put.',
+    render: <GlowWave />,
+  },
+];
+
+const GROUPS = [
+  {
+    id: 'scaling',
+    title: 'Scaling',
+    lede: 'All four scale the button, never the address element itself. What differs is the direction, the curve and whether the movement is symmetric.',
+    items: SCALING,
   },
   {
-    id: 'bar',
-    name: 'Status bar',
-    note: 'A bar across the bottom of the panel, the way a terminal reports. Fits the instrument voice and names the value it copied.',
-    render: <StatusBar />,
+    id: 'movement',
+    title: 'Movement',
+    lede: 'Position and rotation rather than size. Depth and tilt both need a perspective, which is what separates them from a plain scale.',
+    items: MOVEMENT,
   },
   {
-    id: 'silent',
-    name: 'No notification',
-    note: 'The address confirms it and the moment passes. Nothing to dismiss, nothing to time out.',
-    render: <Silent />,
+    id: 'glyph',
+    title: 'The glyphs themselves',
+    lede: 'Two ways around the rule that the address cannot be transformed: change a property that is not a transform, or move the glow instead of the text.',
+    items: GLYPH,
   },
 ];
 
@@ -101,46 +101,31 @@ export default function LabPage() {
   return (
     <main className="lab">
       <header className="lab-head">
-        <h1>Click and notification variants</h1>
+        <h1>Address motion variants</h1>
         <p>
-          Click each address. The first group is what the address itself does; the second is
-          how the copy gets announced. They combine — pick one from each.
+          Click each address. Every one of them also fires the bracket snap and the copy
+          toast exactly as they ship, so you are judging each movement in the company it
+          would actually keep — and the toast against the real background, since it is
+          glass and has nothing of its own to look at.
         </p>
       </header>
 
-      <div className="lab-group">
-        <h2>What the address does</h2>
-        <p>
-          Every one of these works on the glow, on a sibling, or on paint properties of the
-          text. The address cannot be transformed or masked without its clipped gradient
-          falling apart, so none of them move it.
-        </p>
-      </div>
-      {CLICKS.map((v) => (
-        <section className="lab-slide" key={v.id} id={v.id}>
-          <div className="lab-stage">{v.render}</div>
-          <div className="lab-caption">
-            <h3>{v.name}</h3>
-            <p>{v.note}</p>
+      {GROUPS.map((group) => (
+        <div key={group.id}>
+          <div className="lab-group">
+            <h2>{group.title}</h2>
+            <p>{group.lede}</p>
           </div>
-        </section>
-      ))}
-
-      <div className="lab-group">
-        <h2>How it gets announced</h2>
-        <p>
-          All of these use the bracket hover and no click animation, so you are judging the
-          notification alone.
-        </p>
-      </div>
-      {NOTES.map((v) => (
-        <section className="lab-slide" key={v.id} id={v.id}>
-          <div className="lab-stage">{v.render}</div>
-          <div className="lab-caption">
-            <h3>{v.name}</h3>
-            <p>{v.note}</p>
-          </div>
-        </section>
+          {group.items.map((v) => (
+            <section className="lab-slide" key={v.id} id={v.id}>
+              <div className="lab-stage">{v.render}</div>
+              <div className="lab-caption">
+                <h3>{v.name}</h3>
+                <p>{v.note}</p>
+              </div>
+            </section>
+          ))}
+        </div>
       ))}
     </main>
   );

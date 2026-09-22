@@ -100,17 +100,23 @@ would otherwise squeeze values onto three lines.
 
 ## Shape
 
-Radius 4px, everywhere there is a radius at all — interactive surfaces, the fingerprint
-panels, the copy toast. One value, no exceptions. No radius on rows or sections, because
-they are not objects — they are ruled lines in a table.
+Radius 4px on everything that sits *in* the page — interactive surfaces, the fingerprint
+panels. No radius on rows or sections, because they are not objects; they are ruled lines
+in a table.
 
-Hairlines over shadows. The only shadow in the system is under the copy toast, which
-genuinely floats above the page; everything else is bounded by a `--rule` line instead.
+The copy toast is the one exception and is fully rounded. That is the point of the
+exception: it is the only element that floats *above* the page rather than sitting in it,
+and the shape says so before the motion does. Nothing else may take that radius, or the
+distinction stops meaning anything.
 
-The toast is that rule applied: a dark plate behind a hairline, Outfit 300 at 0.8125rem,
-with a 6px `--ok` dot carrying the "this went well" signal that `--ok` means everywhere
-else. The colour is in the dot, not in the surface — a tinted green panel would be the
-only saturated rectangle on the page.
+Hairlines over shadows. The only shadow in the system is under the toast, which genuinely
+floats; everything else is bounded by a `--rule` line instead.
+
+The toast is tinted glass: the accent violet at a tenth strength over a 20px backdrop
+blur, so the page's own gradient comes through it rather than being covered, and it
+belongs to this page rather than to the operating system. The success colour stays in the
+6px `--ok` dot instead of flooding the surface, so `--ok` keeps the specific meaning it
+carries on agreeing sources.
 
 ## Motion
 
@@ -125,29 +131,27 @@ background compositing, and the address renders as a fragment or as nothing at a
 failure is width-dependent, so it will look correct at one address length and break at
 another.
 
-An **ancestor** is a different matter and is safe: the button around the address is
-scaled on click and the gradient composites through it, verified at 7 and 39 characters
-and at 375px. So the rule is precise rather than blanket — move a wrapper, the blurred
-glow copy, or the button, never `.ip-text`.
+An **ancestor** is a different matter and is safe. A transform on the button around the
+address composites fine and the gradient survives it, checked at 7 and 39 characters, at
+375px, and with 3D transforms as well as 2D. So are properties of the text that are not
+painting contexts — `letter-spacing` animates cleanly. The rule is therefore precise
+rather than blanket: move a wrapper, the blurred glow copy, or the button; never
+`.ip-text` itself. The glow copy is flat colour and may even be split per character.
 
 Hover is answered by brackets closing in around the address, the way a shell prompt marks
 a value — not by the address moving or growing. They hold their space at rest, so
 revealing them shifts nothing, and the address stays exactly where the eye left it. The
 glow handles the entrance and then stops participating.
 
-A click is answered by the whole assembly giving under the press: the button scales to
-0.96 while those same brackets bite further in, 45ms in, held 75ms, then the hover state
-resumes. Everything runs on one duration and one curve, so it reads as a single movement
-rather than two things happening at once. It is deliberately faster than the hover reveal
-— an acknowledgement of a press is not something anyone should watch finish — and it
-fires on the click rather than on the clipboard promise, so the feedback tracks the press
-and not the round trip.
+A click snaps those same brackets shut against the address and lets them spring back:
+45ms in, held 75ms, then the hover state resumes. It is deliberately faster than the
+hover reveal — an acknowledgement of a press is not something anyone should watch finish.
+It fires on the click rather than on the clipboard promise, so the feedback tracks the
+press and not the round trip.
 
-The scale goes on the button, not on the address, for a second reason beyond the gradient:
-`transform` does not affect layout, so shrinking the address alone would pull its edges
-away from brackets travelling a fixed distance. On a long address the edges retreat faster
-than the brackets advance and the gesture reads backwards. Scaling the common parent has
-no such width dependence.
+Scaling the whole assembly under the press was built and rejected; it is recorded here so
+it is not proposed again. If the click ever wants more than the brackets, `/lab` holds
+nine worked alternatives.
 
 Durations 120ms micro, 200ms standard. Animate `opacity` and `transform` only.
 `prefers-reduced-motion` removes the gradient drift and the fade, and is already honoured

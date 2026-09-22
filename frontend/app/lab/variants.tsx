@@ -1,41 +1,57 @@
 'use client';
 
-import { animate } from 'motion/react';
 import { useEffect, useRef, useState } from 'react';
 
 const ADDRESS = '149.3.33.84';
 
-/**
- * useCopied returns a flag that goes true on click and clears itself.
- *
- * Nothing here writes to the clipboard except where the variant is specifically about
- * the copy itself — these are visual studies and a lab page should not quietly replace
- * what is on someone's clipboard while they browse it.
- */
-function useCopied(ms = 1600) {
-  const [copied, setCopied] = useState(false);
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+/** Matches what ships: the brackets bite in for 75ms, then the hover state resumes. */
+const SNAP_HOLD = 75;
 
-  useEffect(() => () => void (timer.current && clearTimeout(timer.current)), []);
+/**
+ * Nothing here writes to the clipboard. These are motion studies and a lab page should
+ * not quietly replace what is on someone's clipboard while they browse it. The toast is
+ * the real one from globals.css, so the glass is judged against the real background.
+ */
+function useFire() {
+  const [snap, setSnap] = useState(false);
+  const [note, setNote] = useState(0);
+  const snapTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const noteTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(
+    () => () => {
+      if (snapTimer.current) clearTimeout(snapTimer.current);
+      if (noteTimer.current) clearTimeout(noteTimer.current);
+    },
+    [],
+  );
 
   function fire() {
-    setCopied(true);
-    if (timer.current) clearTimeout(timer.current);
-    timer.current = setTimeout(() => setCopied(false), ms);
+    setSnap(true);
+    setNote((n) => n + 1);
+    if (snapTimer.current) clearTimeout(snapTimer.current);
+    if (noteTimer.current) clearTimeout(noteTimer.current);
+    snapTimer.current = setTimeout(() => setSnap(false), SNAP_HOLD);
+    noteTimer.current = setTimeout(() => setNote(0), 2200);
   }
-  return [copied, fire] as const;
+
+  return { snap, note, fire };
 }
 
+/* ------------------------------------------------------------------ the address */
+
 /**
- * Address is the hero treatment: a gradient clipped to the glyphs over a blurred
- * duplicate that glows, with the brackets that answer a hover.
+ * The address is a gradient clipped to the glyphs over a blurred duplicate that glows.
  *
- * The address element can never be transformed, masked, or given a per-child opacity —
- * that puts it in its own painting context and the clipped gradient stops compositing.
- * Every click response below therefore works on the glow, on a sibling, or on paint
- * properties of the text.
+ * `.demo-text` itself can never be transformed, masked or given a per-child opacity —
+ * that puts it in its own painting context and the clipped background stops
+ * compositing. An ANCESTOR is fine, which is what every transform below moves, and so
+ * are paint and layout properties of the text such as letter-spacing.
+ *
+ * The glow is flat colour with no clipped background, so it may be split per character
+ * and moved freely. That is how the last variant works.
  */
-function Address({ text = ADDRESS }: { text?: string }) {
+function Address({ splitGlow = false }: { splitGlow?: boolean }) {
   return (
     <>
       <span className="ip-bracket left" aria-hidden="true">
@@ -43,184 +59,235 @@ function Address({ text = ADDRESS }: { text?: string }) {
       </span>
       <span className="demo-stack">
         <span className="demo-glow" aria-hidden="true">
-          {text}
+          {splitGlow
+            ? [...ADDRESS].map((ch, i) => (
+                <span className="glow-ch" key={`${i}${ch}`}>
+                  {ch}
+                </span>
+              ))
+            : ADDRESS}
         </span>
         <span className="demo-text" aria-hidden="true">
-          {text}
+          {ADDRESS}
         </span>
       </span>
       <span className="ip-bracket right" aria-hidden="true">
         ]
       </span>
-      <span className="sr-only">{text}</span>
+      <span className="sr-only">{ADDRESS}</span>
     </>
   );
 }
 
-/* ============================================================ click responses */
+type Run = (btn: HTMLButtonElement) => void;
 
-/** A ring expands out of the address and fades, the way a tap leaves a mark. */
-export function Ripple() {
-  const [on, fire] = useCopied(700);
-  return (
-    <button type="button" className={`demo-btn c-ripple ${on ? 'go' : ''}`} onClick={fire}>
-      <span className="ring" aria-hidden="true" />
-      <Address />
-    </button>
-  );
-}
-
-/** The glow flares white-hot for a moment, then settles back. */
-export function Flare() {
+/**
+ * Every variant is the same button and the same bracket snap. Only `run` differs, so
+ * what you are comparing is the address's movement and nothing else.
+ */
+function Demo({ run, className, splitGlow }: { run: Run; className?: string; splitGlow?: boolean }) {
   const ref = useRef<HTMLButtonElement>(null);
+  const { snap, note, fire } = useFire();
 
-  function fire() {
-    const glow = ref.current?.querySelector('.demo-glow');
-    if (!glow) return;
-    animate(
-      glow,
-      { opacity: [0.55, 1, 0.55], filter: ['blur(22px)', 'blur(10px)', 'blur(22px)'] },
-      { duration: 0.7, ease: [0.2, 0, 0, 1] },
-    );
+  function onClick() {
+    fire();
+    if (ref.current && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      run(ref.current);
+    }
   }
 
   return (
-    <button type="button" className="demo-btn c-flare" ref={ref} onClick={fire}>
-      <Address />
-    </button>
-  );
-}
-
-/** The brackets snap shut against the address and spring back. */
-export function Snap() {
-  const [on, fire] = useCopied(420);
-  return (
-    <button type="button" className={`demo-btn c-snap ${on ? 'go' : ''}`} onClick={fire}>
-      <Address />
-    </button>
-  );
-}
-
-/** The address itself becomes the confirmation, then returns. */
-export function InPlace() {
-  const [on, fire] = useCopied(1300);
-  return (
-    <button type="button" className={`demo-btn c-inplace ${on ? 'go' : ''}`} onClick={fire}>
-      <Address text={on ? 'copied' : ADDRESS} />
-    </button>
-  );
-}
-
-/** The gradient washes once through the glyphs, left to right. */
-export function Wash() {
-  const [on, fire] = useCopied(900);
-  return (
-    <button type="button" className={`demo-btn c-wash ${on ? 'go' : ''}`} onClick={fire}>
-      <Address />
-    </button>
-  );
-}
-
-/* ============================================================== notifications */
-
-/* Each variant owns its own state. A render prop would have to cross the server/client
-   boundary from the page, and functions cannot be passed to a Client Component. */
-
-function Trigger({ onFire }: { onFire: () => void }) {
-  return (
-    <button type="button" className="demo-btn" onClick={onFire}>
-      <Address />
-    </button>
-  );
-}
-
-/** What ships today: a pill at the top of the window. */
-export function TopPill() {
-  const [open, fire] = useCopied(1900);
-  return (
-    <div className="note-stage">
-      {open ? (
-        <span className="note note-pill" aria-live="polite">
-          Copied to clipboard
-        </span>
-      ) : null}
-      <Trigger onFire={fire} />
-    </div>
-  );
-}
-
-/** A line under the address, in its own space, so nothing overlaps or shifts. */
-export function UnderLine() {
-  const [open, fire] = useCopied(1900);
-  return (
-    <div className="note-stage column">
-      <Trigger onFire={fire} />
-      <span className={`note note-under ${open ? 'open' : ''}`} aria-live="polite">
-        Copied
-      </span>
-    </div>
-  );
-}
-
-/** The label above stops naming the value and reports what happened. */
-export function LabelSwap() {
-  const [open, fire] = useCopied(1900);
-  return (
-    <div className="note-stage column">
-      <span className="note-label" aria-live="polite">
-        <span className={open ? 'off' : ''}>Your IP address</span>
-        <span className={open ? 'on' : ''}>Copied to clipboard</span>
-      </span>
-      <Trigger onFire={fire} />
-    </div>
-  );
-}
-
-/** A tick slides out beside the address and holds, then leaves. */
-export function Tick() {
-  const [open, fire] = useCopied(1900);
-  return (
-    <div className="note-stage">
-      <Trigger onFire={fire} />
-      <span className={`note note-tick ${open ? 'open' : ''}`} aria-live="polite">
-        <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">
-          <path
-            d="M4 9.5 7.5 13 14 5.5"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-        </svg>
-        Copied
-      </span>
-    </div>
-  );
-}
-
-/** A bar across the bottom, the way a terminal reports status. */
-export function StatusBar() {
-  const [open, fire] = useCopied(1900);
-  return (
-    <div className="note-stage">
-      <Trigger onFire={fire} />
-      <span className={`note note-bar ${open ? 'open' : ''}`} aria-live="polite">
-        <span className="dot" aria-hidden="true" />
-        {ADDRESS} copied to clipboard
-      </span>
-    </div>
-  );
-}
-
-/** Nothing announced. The address confirms it and the moment passes. */
-export function Silent() {
-  const [open, fire] = useCopied(1300);
-  return (
-    <div className="note-stage">
-      <button type="button" className={`demo-btn c-inplace ${open ? 'go' : ''}`} onClick={fire}>
-        <Address text={open ? 'copied' : ADDRESS} />
+    <>
+      <button
+        ref={ref}
+        type="button"
+        className={`demo-btn c-snap ${snap ? 'go' : ''} ${className ?? ''}`}
+        onClick={onClick}
+      >
+        <Address splitGlow={splitGlow} />
       </button>
-    </div>
+      {note > 0 ? (
+        <output className="copied" key={note} aria-live="polite">
+          Copied to clipboard
+        </output>
+      ) : null}
+    </>
+  );
+}
+
+/* --------------------------------------------------------------------- scaling */
+
+/** Down hard, past the resting size on the way back, then settles. */
+export function Punch() {
+  return (
+    <Demo
+      run={(b) =>
+        b.animate(
+          [
+            { transform: 'scale(1)' },
+            { transform: 'scale(0.93)', offset: 0.2 },
+            { transform: 'scale(1.025)', offset: 0.58 },
+            { transform: 'scale(1)' },
+          ],
+          { duration: 340, easing: 'ease-out' },
+        )
+      }
+    />
+  );
+}
+
+/** The other direction: the value jumps toward you instead of away. */
+export function Pop() {
+  return (
+    <Demo
+      run={(b) =>
+        b.animate([{ transform: 'scale(1)' }, { transform: 'scale(1.05)', offset: 0.3 }, { transform: 'scale(1)' }], {
+          duration: 280,
+          easing: 'cubic-bezier(0.2, 0, 0, 1)',
+        })
+      }
+    />
+  );
+}
+
+/** Wider and flatter, then the reverse — the cartoonist's squash and stretch. */
+export function Squash() {
+  return (
+    <Demo
+      run={(b) =>
+        b.animate(
+          [
+            { transform: 'scale(1, 1)' },
+            { transform: 'scale(1.035, 0.92)', offset: 0.22 },
+            { transform: 'scale(0.985, 1.03)', offset: 0.55 },
+            { transform: 'scale(1, 1)' },
+          ],
+          { duration: 360, easing: 'ease-out' },
+        )
+      }
+    />
+  );
+}
+
+/** No travel inward at all: it is already small when you look, and it grows back. */
+export function Settle() {
+  return (
+    <Demo
+      run={(b) =>
+        b.animate([{ transform: 'scale(0.95)' }, { transform: 'scale(1)' }], {
+          duration: 420,
+          easing: 'cubic-bezier(0.16, 1, 0.3, 1)',
+        })
+      }
+    />
+  );
+}
+
+/* -------------------------------------------------------------------- movement */
+
+/** Straight down and back, the way a key travels under a finger. */
+export function Keypress() {
+  return (
+    <Demo
+      run={(b) =>
+        b.animate(
+          [
+            { transform: 'translateY(0)' },
+            { transform: 'translateY(6px)', offset: 0.22 },
+            { transform: 'translateY(0)' },
+          ],
+          { duration: 260, easing: 'cubic-bezier(0.3, 0, 0, 1)' },
+        )
+      }
+    />
+  );
+}
+
+/** Pushed into the screen under perspective, so it foreshortens rather than just shrinking. */
+export function Depth() {
+  return (
+    <Demo
+      run={(b) =>
+        b.animate(
+          [
+            { transform: 'perspective(900px) translateZ(0)' },
+            { transform: 'perspective(900px) translateZ(-90px)', offset: 0.28 },
+            { transform: 'perspective(900px) translateZ(0)' },
+          ],
+          { duration: 340, easing: 'ease-out' },
+        )
+      }
+    />
+  );
+}
+
+/** The top edge tips away from you, as though the whole line hinged at its base. */
+export function Tilt() {
+  return (
+    <Demo
+      run={(b) =>
+        b.animate(
+          [
+            { transform: 'perspective(900px) rotateX(0deg)' },
+            { transform: 'perspective(900px) rotateX(14deg)', offset: 0.28 },
+            { transform: 'perspective(900px) rotateX(0deg)' },
+          ],
+          { duration: 360, easing: 'ease-out' },
+        )
+      }
+    />
+  );
+}
+
+/* ---------------------------------------------------------------- glyph level */
+
+/**
+ * Letter-spacing is a layout property, not a painting context, so the gradient survives
+ * it. The glyphs themselves close up, and because the brackets are flex siblings they
+ * follow the address inward without being told to.
+ */
+export function Tighten() {
+  return (
+    <Demo
+      run={(b) => {
+        for (const el of b.querySelectorAll('.demo-text, .demo-glow')) {
+          el.animate(
+            [
+              { letterSpacing: '-0.02em' },
+              { letterSpacing: '-0.09em', offset: 0.25 },
+              { letterSpacing: '-0.02em' },
+            ],
+            { duration: 320, easing: 'cubic-bezier(0.3, 0, 0, 1)' },
+          );
+        }
+      }}
+    />
+  );
+}
+
+/**
+ * The address does not move at all. The light behind it does: a ripple runs left to
+ * right through the blurred copy, which is flat colour and therefore free to be split
+ * per character and animated.
+ */
+export function GlowWave() {
+  return (
+    <Demo
+      run={(b) => {
+        const chars = b.querySelectorAll('.glow-ch');
+        chars.forEach((ch, i) => {
+          ch.animate(
+            [
+              { transform: 'translateY(0) scale(1)', opacity: 1 },
+              { transform: 'translateY(-9px) scale(1.25)', opacity: 1, offset: 0.4 },
+              { transform: 'translateY(0) scale(1)', opacity: 1 },
+            ],
+            { duration: 420, delay: i * 22, easing: 'ease-out' },
+          );
+        });
+      }}
+      className="v-wave"
+      splitGlow
+    />
   );
 }
