@@ -30,12 +30,15 @@ a wheel and the page has changed under you. Neither is right for a movement of a
 screen.
 
 **The step is earned, not triggered.** What moves you is a *rate*: the script sums the
-scrolling done in the last second, continuously, and plays the change once that sum passes
-600px. Input older than the window stops counting, so the sum falls on its own and a slow
-drift never arrives — it has to be one committed push, about six notches of a mouse wheel
-or a decisive trackpad swipe. Touch counts for 1.6× its raw travel, since a finger moves
-one pixel per pixel where a wheel notch is worth a hundred; that puts a phone at roughly
-half a screen.
+scrolling done in the **last half second**, continuously, and plays the change once that
+sum passes **700px** — 1400px a second. Input older than the window stops counting, so the
+sum falls on its own and a slow drift never arrives however long it is kept up. It has to
+be one committed push. Touch counts for 1.6× its raw travel, since a finger moves one
+pixel per pixel where a wheel notch is worth a hundred; that puts a phone at roughly half
+a screen.
+
+The half-second window does two jobs. It sets that rate, and it means the gauge has almost
+nothing left to drain by the time you have let go.
 
 It listens in the two places a change is what the scrolling could mean: anywhere on the
 hero, and on the readout only when it is already at its own top.
@@ -45,6 +48,16 @@ the edge you are pulling toward, the cue taking the accent colour, and the hero 
 into the movement the swap will finish. This is the whole reason to measure a rate rather
 than a total — a threshold you cannot see coming is indistinguishable from a page that has
 stopped responding.
+
+The gauge is eased rather than drawn straight from the sum, which is not something anyone
+would want to watch: samples leave the window one at a time so it steps downward, and
+trackpad momentum makes it jump on the way up. It chases the measurement with an
+exponential, quick up and a little gentler down, and goes home as soon as the input stops
+rather than waiting out the rest of the window. How much silence counts as stopping is
+measured from the gaps the device itself has been leaving — a trackpad reporting every
+10ms is released almost at once, a mouse wheel at a brisk spin is given the room not to
+collapse between notches. Commits are decided on the measurement and never on the drawn
+value, so none of the smoothing costs responsiveness.
 
 Arrow, page and Home keys do the same job without having to earn it, and so do the cue and
 the skip link. They are already deliberate acts; it was the flick that was too cheap.
@@ -179,7 +192,8 @@ gradient no longer drifts — the arrival is the moment.
 
 The view change is the one other piece of motion, and it is a change of place rather than
 decoration: the readout rises into position while the hero recedes — up 22%, down to 0.96,
-blurred and gone over 520ms. The hero travels less than the readout and softens as it
+blurred and gone over 720ms, with the fade and the blur finishing first so the arriving
+view is already solid while it travels the last of the distance. The hero travels less than the readout and softens as it
 goes, so the two read as depth rather than as two slides passing each other. Ancestor
 transform, opacity and blur are all safe over the address's clipped gradient; only the
 address element itself is off limits.

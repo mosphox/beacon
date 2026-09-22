@@ -304,10 +304,34 @@ function HeroPlace({ data }: { data: BeaconResponse }) {
  * How much scrolling, inside the last second, moves you to the other view.
  * Roughly six notches of a mouse wheel, or one decisive trackpad swipe.
  */
-const PULL_THRESHOLD = 600;
+const PULL_THRESHOLD = 700;
 
-/** The window the pull is measured over. Older input has simply stopped counting. */
-const PULL_WINDOW = 1000;
+/**
+ * The window the pull is measured over. Older input has simply stopped counting.
+ *
+ * Half a second rather than a whole one, which does two things at once: the gauge has
+ * nothing left to drain almost as soon as you let go, and the same threshold now asks for
+ * twice the rate — 1400px a second, where a full-second window wanted 600.
+ */
+const PULL_WINDOW = 500;
+
+/**
+ * How much silence counts as letting go, as a multiple of the gaps the device has been
+ * leaving between events, and the bounds that multiple is held inside.
+ *
+ * A fixed value has to be set for the slowest input that is still one continuous push —
+ * a mouse wheel at a brisk spin leaves 60-100ms between notches — and a trackpad, which
+ * reports every 8-16ms, then waits out a grace period it never needed. Measuring the
+ * device's own rhythm lets the gauge go home almost at once on a trackpad without
+ * collapsing between notches on a wheel.
+ */
+const RELEASE_GAPS = 2.2;
+const RELEASE_MIN = 90;
+const RELEASE_MAX = 220;
+
+/** Time constants for the gauge chasing the measurement: quick up, unhurried down. */
+const RISE_TAU = 50;
+const FALL_TAU = 90;
 
 /**
  * Touch counts for more than its raw travel. A finger moves one pixel per pixel, while a
@@ -317,7 +341,7 @@ const PULL_WINDOW = 1000;
 const TOUCH_GAIN = 1.6;
 
 /** How long the view change takes; must match the transition in globals.css. */
-const SWAP_MS = 520;
+const SWAP_MS = 720;
 
 /** A line and a page, for wheels that report their delta in them rather than pixels. */
 function wheelPixels(e: WheelEvent, page: number): number {
@@ -365,13 +389,19 @@ function usePull(
 
     /** Recent input, newest last, as [timestamp, pixels]. */
     let samples: [number, number][] = [];
+    /** What the gauge is drawing, which chases the measurement rather than being it. */
+    let shown = 0;
+    let lastInput = 0;
+    let lastFrame = 0;
+    /** Smoothed gap between input events, which is what release is measured against. */
+    let inputGap = RELEASE_MAX;
     let raf = 0;
     let swapping = false;
     let touchY: number | null = null;
 
-    const setPull = (v: number) => {
-      stage.style.setProperty('--pull', v.toFixed(3));
-      stage.classList.toggle('pulling', v > 0.02);
+    const paint = () => {
+      stage.style.setProperty('--pull', shown.toFixed(3));
+      stage.classList.toggle('pulling', shown > 0.02);
     };
 
     /** Drops what has aged out and returns what is left. */
@@ -380,18 +410,50 @@ function usePull(
       return samples.reduce((sum, [, d]) => sum + d, 0);
     };
 
-    // The window has to keep draining while the input has stopped, or the gauge would
-    // freeze wherever the last event left it.
-    const drain = () => {
-      const left = total(performance.now());
-      setPull(Math.min(1, left / PULL_THRESHOLD));
-      raf = left > 0 ? requestAnimationFrame(drain) : 0;
+    /**
+     * The gauge is eased rather than drawn straight from the sum.
+     *
+     * The raw measurement is not something you would want to watch: samples fall out of
+     * the window one at a time, so it goes down in steps, and trackpad momentum makes it
+     * jump on the way up. Chasing it with an exponential smooths both, and an asymmetric
+     * time constant keeps it honest — it answers input almost at once and lets go a
+     * little more gently. Commits are decided on the measurement, never on this, so none
+     * of the smoothing costs responsiveness.
+     */
+    const frame = (now: number) => {
+      const dt = Math.min(64, now - lastFrame);
+      lastFrame = now;
+
+      const measured = Math.min(1, total(now) / PULL_THRESHOLD);
+      // Let go and it goes home, rather than waiting out the rest of the window.
+      const release = Math.min(RELEASE_MAX, Math.max(RELEASE_MIN, inputGap * RELEASE_GAPS));
+      const target = now - lastInput > release ? 0 : measured;
+      const tau = target > shown ? RISE_TAU : FALL_TAU;
+      shown += (target - shown) * (1 - Math.exp(-dt / tau));
+
+      if (shown < 0.004 && target === 0) {
+        shown = 0;
+        paint();
+        raf = 0;
+        return;
+      }
+      paint();
+      raf = requestAnimationFrame(frame);
+    };
+
+    const run = () => {
+      if (raf) return;
+      lastFrame = performance.now();
+      raf = requestAnimationFrame(frame);
     };
 
     const swap = (to: View) => {
       swapping = true;
       samples = [];
-      setPull(0);
+      shown = 0;
+      paint();
+      if (raf) cancelAnimationFrame(raf);
+      raf = 0;
       setView(to);
       window.setTimeout(() => {
         swapping = false;
@@ -413,24 +475,25 @@ function usePull(
       const down = delta > 0;
       if (!accepts(down)) {
         // Pushing the other way is a change of mind, not progress toward anything.
-        if (samples.length > 0) {
-          samples = [];
-          setPull(0);
-        }
+        samples = [];
         return false;
       }
 
       const now = performance.now();
+      // Only gaps inside a continuous push describe the device; the pause before one
+      // starts would otherwise be read as a very slow wheel.
+      const gap = now - lastInput;
+      if (gap < RELEASE_MAX) inputGap = inputGap * 0.7 + gap * 0.3;
+      else inputGap = RELEASE_MAX;
+      lastInput = now;
       samples.push([now, Math.abs(delta)]);
-      const sum = total(now);
 
-      if (sum >= PULL_THRESHOLD) {
+      if (total(now) >= PULL_THRESHOLD) {
         swap(viewRef.current === 'hero' ? 'readout' : 'hero');
         return true;
       }
 
-      setPull(sum / PULL_THRESHOLD);
-      if (!raf) raf = requestAnimationFrame(drain);
+      run();
       return true;
     };
 
