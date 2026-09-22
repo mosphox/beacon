@@ -74,7 +74,7 @@ design decision, not a chore.
 | `--ink-4` | `#4b5563` | hints, disabled |
 | `--accent` | `#a78bfa` | the one highlight: emphasised values |
 | `--cy` `--vi` `--pk` | `#00d4ff` `#7c3aed` `#f472b6` | the hero IP gradient, nowhere else |
-| `--ok` | `#10b981` | sources agree, copy confirmation |
+| `--ok` | `#10b981` | sources agree |
 | `--warn` | `#f59e0b` | sources disagree |
 
 Four atmospheric radial washes — teal, violet, magenta, green — sit fixed behind
@@ -114,9 +114,10 @@ floats; everything else is bounded by a `--rule` line instead.
 
 The toast is tinted glass: the accent violet at a tenth strength over a 20px backdrop
 blur, so the page's own gradient comes through it rather than being covered, and it
-belongs to this page rather than to the operating system. The success colour stays in the
-6px `--ok` dot instead of flooding the surface, so `--ok` keeps the specific meaning it
-carries on agreeing sources.
+belongs to this page rather than to the operating system. It carries no status colour at
+all — no green dot, no tinted surface. The sentence already says what happened, and a
+success marker beside it would spend `--ok` on something that is not a claim about data;
+the token is reserved for sources agreeing.
 
 ## Motion
 

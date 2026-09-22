@@ -708,7 +708,6 @@ button.ip {
 
   display: inline-flex;
   align-items: center;
-  gap: 8px;
 
   /* Tinted glass. The page's own gradient comes through it rather than being covered,
      and the tint is the accent violet at a tenth strength so the plate belongs to this
@@ -729,16 +728,6 @@ button.ip {
   /* It genuinely floats, so it is the one place a shadow is allowed. */
   box-shadow: 0 8px 32px rgb(0 0 0 / 0.3);
   animation: toast 2.2s ease-in-out forwards;
-}
-
-/* --ok is what the page already uses to mean "this went well", as on agreeing sources. */
-.copied::before {
-  content: '';
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--ok);
-  flex: none;
 }
 
 @keyframes toast {
