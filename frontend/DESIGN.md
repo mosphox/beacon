@@ -31,9 +31,18 @@ screen.
 
 **The step is earned, not triggered.** What moves you is a *rate*: the script sums the
 scrolling done in the **last half second**, continuously, and plays the change once that
-sum passes **1400px** — 2800px a second. Input older than the window stops counting, so the
+sum passes **420px** — 840px a second. Input older than the window stops counting, so the
 sum falls on its own and a slow drift never arrives however long it is kept up. It has to
 be one committed flick.
+
+**Inertia does not count.** macOS keeps sending wheel events for a second or two after the
+fingers lift, and while they were counted the budget was mostly being filled *after* the
+gesture was over: you flicked, let go, and only then did the bar finish and the view
+change. Ignoring them is what lets the threshold be this low, and it is why the change now
+lands while your fingers are still moving — measured at 174ms into a firm swipe, against a
+440px finger phase. It also stops the tail of a flick scrolling the readout on its own
+once the swap has landed. `WheelEvent.momentum` is Chrome 151 and up; where it is missing,
+inertia counts the way it used to everywhere.
 
 The half-second window does two jobs. It sets that rate, and it means the gauge has almost
 nothing left to drain by the time you have let go.
@@ -45,12 +54,11 @@ wheel notch is worth a hundred, so raising the threshold to make a trackpad work
 would otherwise ask a phone for more than a whole screen inside the window, which is not a
 hard gesture but an impossible one.
 
-**Known, and deliberate: a notched mouse wheel cannot reach this.** A fast spin is about
-18 notches a second, or 1800px, which fills the gauge to two thirds and stops there. At
-2800px/s the gesture is a trackpad flick or a touch swipe. Wheel users are not stranded —
-the scroll cue, the skip button, and the arrow, page and Home keys all cross without
-having to earn it — but they will not get there by scrolling. `PULL_THRESHOLD` is the one
-number to change if that trade stops being worth it.
+At 840px/s every input device can reach this: a mouse wheel needs about five notches
+inside the window, where at 2800px/s a fast spin topped out at two thirds of the gauge and
+stopped there — a progress indicator that filled and then refused, which is the exact
+failure the gauge exists to prevent. The scroll cue, the skip button and the arrow, page
+and Home keys still cross without having to earn it.
 
 It listens in the two places a change is what the scrolling could mean: anywhere on the
 hero, and on the readout only when it is already at its own top.

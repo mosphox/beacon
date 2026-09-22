@@ -304,7 +304,7 @@ function HeroPlace({ data }: { data: BeaconResponse }) {
  * How much scrolling, inside the last second, moves you to the other view.
  * Roughly six notches of a mouse wheel, or one decisive trackpad swipe.
  */
-const PULL_THRESHOLD = 1400;
+const PULL_THRESHOLD = 420;
 
 /**
  * The window the pull is measured over. Older input has simply stopped counting.
@@ -380,6 +380,15 @@ const NOISE_PX = 1;
  * 800 is 1600px of travel against a 1400px threshold and it did not cross.
  */
 const REVERSE_PX = 40;
+
+/**
+ * Whether the browser will tell us that a wheel event is inertia rather than a hand.
+ *
+ * `WheelEvent.momentum` is Chrome 151 and up; Firefox and Safari do not expose it, and
+ * absence has to read as "not momentum" rather than as "unknown", so those browsers keep
+ * counting inertia the way every browser used to.
+ */
+const HAS_MOMENTUM = typeof WheelEvent !== 'undefined' && 'momentum' in WheelEvent.prototype;
 
 /** Finds a touch by identity. Index is not identity once a second finger is down. */
 function touchById(list: TouchList, id: number): Touch | null {
@@ -551,6 +560,13 @@ function usePull(
       // it would drive the gesture from a gesture that means something else, and
       // preventDefault on it takes zoom away from anyone who needs it.
       if (e.ctrlKey) return;
+
+      // Inertia is not a push. macOS keeps sending wheel events for a second or two
+      // after the fingers lift, and counting them meant the budget was mostly filled
+      // after the gesture was over — so the bar finished and the view changed once you
+      // had already let go. Ignoring them also stops the tail of a flick scrolling the
+      // readout on its own once the swap has landed.
+      if (HAS_MOMENTUM && (e as WheelEvent & { momentum?: boolean }).momentum) return;
 
       const claimed = push(wheelPixels(e, () => stage.clientHeight));
       // Only swallow what the gesture is actually using; the readout must stay
