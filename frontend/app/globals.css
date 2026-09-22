@@ -168,9 +168,11 @@ body:has(.stage) {
   margin-left: calc(var(--pull) * -90px);
   border-radius: 999px;
   background: var(--accent);
+  /* No transition on this. The computed opacity changes every frame, so a transition is
+     retargeted every frame and never arrives — measured at about 130ms of brightness
+     lagging behind the gauge's own length. The easing in usePull already shapes it. */
   opacity: calc(0.25 + var(--pull) * 0.75);
   pointer-events: none;
-  transition: opacity 140ms ease-out;
 }
 
 .stage[data-view='hero'] .pull-gauge {

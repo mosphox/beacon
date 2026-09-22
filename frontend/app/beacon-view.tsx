@@ -345,11 +345,48 @@ const TOUCH_GAIN = PULL_THRESHOLD / 440;
 /** How long the view change takes; must match the transition in globals.css. */
 const SWAP_MS = 720;
 
-/** A line and a page, for wheels that report their delta in them rather than pixels. */
-function wheelPixels(e: WheelEvent, page: number): number {
-  if (e.deltaMode === 1) return e.deltaY * 40;
-  if (e.deltaMode === 2) return e.deltaY * page;
-  return e.deltaY;
+/**
+ * A line and a page, for wheels that report their delta in them rather than pixels.
+ *
+ * `deltaY` is read first on purpose: Gecko hands pixel units to pages that never ask
+ * about `deltaMode` and switches to line units for pages that do, so touching
+ * `deltaMode` first opts Firefox into the worse unit and then needs a magic number to
+ * undo it. Chrome and Safari never emit line deltas at all. The line branch stays as a
+ * fallback rather than an expectation — if it is ever reached, 40 is nearer a notch than
+ * treating 3 lines as 3 pixels would be.
+ *
+ * `page` is a thunk because the page branch essentially never fires, and reading
+ * `clientHeight` eagerly on every wheel event is a layout read for nothing.
+ */
+function wheelPixels(e: WheelEvent, page: () => number): number {
+  const dy = e.deltaY;
+  if (e.deltaMode === 1) return dy * 40;
+  if (e.deltaMode === 2) return dy * page();
+  return dy;
+}
+
+/**
+ * Below this a delta is noise rather than direction. A trackpad emits zero and
+ * single-pixel deltas constantly — at the start and end of a flick, and whenever the
+ * fingers drift diagonally.
+ */
+const NOISE_PX = 1;
+
+/**
+ * And this is what a push the other way has to be worth before it counts as changing
+ * your mind. About a third of a wheel notch.
+ *
+ * Without it, any stray backwards pixel emptied the whole window mid-gesture: 800, −1,
+ * 800 is 1600px of travel against a 1400px threshold and it did not cross.
+ */
+const REVERSE_PX = 40;
+
+/** Finds a touch by identity. Index is not identity once a second finger is down. */
+function touchById(list: TouchList, id: number): Touch | null {
+  for (let i = 0; i < list.length; i += 1) {
+    if (list[i].identifier === id) return list[i];
+  }
+  return null;
 }
 
 type View = 'hero' | 'readout';
@@ -399,7 +436,9 @@ function usePull(
     let inputGap = RELEASE_MAX;
     let raf = 0;
     let swapping = false;
+    let touchId: number | null = null;
     let touchY: number | null = null;
+    let unswap: ReturnType<typeof setTimeout> | null = null;
 
     const paint = () => {
       stage.style.setProperty('--pull', shown.toFixed(3));
@@ -423,7 +462,11 @@ function usePull(
      * of the smoothing costs responsiveness.
      */
     const frame = (now: number) => {
-      const dt = Math.min(64, now - lastFrame);
+      // rAF is handed the frame's vsync timestamp, which Chrome takes *before* input is
+      // dispatched — so a frame entered from the wheel handler arrives with `now` a
+      // fraction of a millisecond in the past, and an unclamped dt steps the gauge
+      // backwards on the first frame of every pull.
+      const dt = Math.min(64, Math.max(0, now - lastFrame));
       lastFrame = now;
 
       const measured = Math.min(1, total(now) / PULL_THRESHOLD);
@@ -457,7 +500,8 @@ function usePull(
       if (raf) cancelAnimationFrame(raf);
       raf = 0;
       setView(to);
-      window.setTimeout(() => {
+      if (unswap) clearTimeout(unswap);
+      unswap = setTimeout(() => {
         swapping = false;
       }, SWAP_MS);
     };
@@ -474,10 +518,13 @@ function usePull(
 
     const push = (delta: number) => {
       if (swapping) return false;
+      if (Math.abs(delta) < NOISE_PX) return false;
+
       const down = delta > 0;
       if (!accepts(down)) {
-        // Pushing the other way is a change of mind, not progress toward anything.
-        samples = [];
+        // A real push the other way is a change of mind. A stray pixel is not, and
+        // treating it as one threw away everything earned so far.
+        if (Math.abs(delta) >= REVERSE_PX) samples = [];
         return false;
       }
 
@@ -500,37 +547,69 @@ function usePull(
     };
 
     const onWheel = (e: WheelEvent) => {
-      const claimed = push(wheelPixels(e, stage.clientHeight));
+      // ctrlKey on a wheel event is a pinch or a browser zoom, not a scroll. Claiming
+      // it would drive the gesture from a gesture that means something else, and
+      // preventDefault on it takes zoom away from anyone who needs it.
+      if (e.ctrlKey) return;
+
+      const claimed = push(wheelPixels(e, () => stage.clientHeight));
       // Only swallow what the gesture is actually using; the readout must stay
       // ordinarily scrollable everywhere else.
       if (claimed || swapping) e.preventDefault();
     };
 
+    const forget = () => {
+      touchId = null;
+      touchY = null;
+    };
+
     const onTouchStart = (e: TouchEvent) => {
-      touchY = e.touches[0]?.clientY ?? null;
+      // One finger only. A second one is a pinch or a stray palm, and neither is this.
+      if (e.touches.length !== 1) return forget();
+      touchId = e.touches[0].identifier;
+      touchY = e.touches[0].clientY;
     };
 
     const onTouchMove = (e: TouchEvent) => {
-      const y = e.touches[0]?.clientY;
-      if (y === undefined || touchY === null) return;
-      const delta = touchY - y;
-      touchY = y;
-      if (push(delta * TOUCH_GAIN)) e.preventDefault();
-    };
+      if (touchId === null || touchY === null) return;
+      if (e.touches.length !== 1) return forget();
 
-    const onTouchEnd = () => {
-      touchY = null;
+      // By identity, not by index. When one finger of two lifts, touches[0] becomes the
+      // other one, and the jump between them is the distance between the fingers rather
+      // than any travel — enough, at this gain, to swap the view with nothing moving.
+      const t = touchById(e.touches, touchId);
+      if (!t) return;
+
+      const delta = touchY - t.clientY;
+      touchY = t.clientY;
+      if (push(delta * TOUCH_GAIN)) e.preventDefault();
     };
 
     // Arrow and page keys do the same job without having to earn it. They are already
     // deliberate, and making someone hammer a key to cross a threshold would be absurd.
     const onKeyDown = (e: KeyboardEvent) => {
       if (swapping || e.metaKey || e.ctrlKey || e.altKey) return;
-      const target = e.target as HTMLElement | null;
-      if (target && /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName)) return;
 
-      const forward = e.key === 'PageDown' || e.key === 'ArrowDown' || e.key === ' ';
-      const back = e.key === 'PageUp' || e.key === 'ArrowUp' || e.key === 'Home';
+      // Anything that takes keys of its own keeps them. Space especially: it belongs to
+      // whatever is focused, and on the hero that is the address, whose whole job is to
+      // copy. Exempting only form fields meant Space on the page's primary control
+      // changed the view and never copied anything.
+      // The listener is on window, so the target is not always an element — it is the
+      // document, or window itself, when nothing is focused.
+      const target = e.target instanceof Element ? e.target : null;
+      if (
+        target &&
+        ((target instanceof HTMLElement && target.isContentEditable) ||
+          target.closest('input, textarea, select, button, a[href], summary, [role="button"]'))
+      ) {
+        return;
+      }
+
+      // Shift+Space is page-up by convention, not another page-down.
+      const space = e.key === ' ';
+      const forward = e.key === 'PageDown' || e.key === 'ArrowDown' || (space && !e.shiftKey);
+      const back =
+        e.key === 'PageUp' || e.key === 'ArrowUp' || e.key === 'Home' || (space && e.shiftKey);
 
       if (viewRef.current === 'hero' && forward) {
         e.preventDefault();
@@ -547,16 +626,22 @@ function usePull(
     stage.addEventListener('wheel', onWheel, { passive: false });
     stage.addEventListener('touchstart', onTouchStart, { passive: true });
     stage.addEventListener('touchmove', onTouchMove, { passive: false });
-    stage.addEventListener('touchend', onTouchEnd, { passive: true });
+    stage.addEventListener('touchend', forget, { passive: true });
+    // The UA fires this when it takes the pointer for a viewport pan, on palm
+    // rejection, or when a modal opens. It is not preventable, so the only correct
+    // response is to let go of the gesture.
+    stage.addEventListener('touchcancel', forget, { passive: true });
     window.addEventListener('keydown', onKeyDown);
 
     return () => {
       stage.removeEventListener('wheel', onWheel);
       stage.removeEventListener('touchstart', onTouchStart);
       stage.removeEventListener('touchmove', onTouchMove);
-      stage.removeEventListener('touchend', onTouchEnd);
+      stage.removeEventListener('touchend', forget);
+      stage.removeEventListener('touchcancel', forget);
       window.removeEventListener('keydown', onKeyDown);
       if (raf) cancelAnimationFrame(raf);
+      if (unswap) clearTimeout(unswap);
       stage.style.removeProperty('--pull');
       stage.classList.remove('pulling');
     };

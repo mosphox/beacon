@@ -55,6 +55,12 @@ number to change if that trade stops being worth it.
 It listens in the two places a change is what the scrolling could mean: anywhere on the
 hero, and on the readout only when it is already at its own top.
 
+Pushing the other way cancels the pull, but only a push worth about a third of a wheel
+notch counts as one. A trackpad emits zero and wrong-signed pixels constantly — at the
+start and end of a flick, and whenever the fingers drift diagonally — and reading those
+as a change of mind emptied the window mid-gesture. Single-pixel noise is neither
+progress nor a reversal.
+
 **The pull is drawn while it builds**, as `--pull` from 0 to 1: a hairline that grows from
 the edge you are pulling toward, the cue taking the accent colour, and the hero leaning
 into the movement the swap will finish. This is the whole reason to measure a rate rather
