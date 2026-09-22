@@ -39,6 +39,8 @@ export default function BeaconView() {
   const [status, setStatus] = useState<Status>('loading');
   const [attempt, setAttempt] = useState(0);
   const [copied, setCopied] = useState(0);
+  const [snap, setSnap] = useState(false);
+  const snapTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [showAll, setShowAll] = useState<Record<string, boolean>>({});
   const readoutRef = useRef<HTMLElement>(null);
   const addressRef = useRef<HTMLButtonElement>(null);
@@ -91,8 +93,19 @@ export default function BeaconView() {
     return () => clearTimeout(t);
   }, [copied]);
 
+  useEffect(() => () => void (snapTimer.current && clearTimeout(snapTimer.current)), []);
+
   function copy() {
     if (!data?.ip || !navigator.clipboard) return;
+
+    // Fire the snap on the click rather than on the clipboard promise: the
+    // acknowledgement should track the press, not the round trip.
+    if (!reducedMotion) {
+      setSnap(true);
+      if (snapTimer.current) clearTimeout(snapTimer.current);
+      snapTimer.current = setTimeout(() => setSnap(false), 150);
+    }
+
     navigator.clipboard.writeText(data.ip).then(
       () => setCopied((n) => n + 1),
       () => {},
@@ -160,7 +173,7 @@ export default function BeaconView() {
                 <button
                   ref={addressRef}
                   type="button"
-                  className="ip"
+                  className={snap ? 'ip snap' : 'ip'}
                   onClick={copy}
                   translate="no"
                   /* The split glyphs are decorative once the label carries the address;

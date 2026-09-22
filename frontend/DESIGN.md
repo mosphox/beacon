@@ -100,12 +100,17 @@ would otherwise squeeze values onto three lines.
 
 ## Shape
 
-Radius 4px on the few interactive surfaces, 2rem on the copy toast only (it is a pill and
-it already exists). No radius on rows or sections, because they are not objects — they are
-ruled lines in a table.
+Radius 4px, everywhere there is a radius at all — interactive surfaces, the fingerprint
+panels, the copy toast. One value, no exceptions. No radius on rows or sections, because
+they are not objects — they are ruled lines in a table.
 
 Hairlines over shadows. The only shadow in the system is under the copy toast, which
-genuinely floats.
+genuinely floats above the page; everything else is bounded by a `--rule` line instead.
+
+The toast is that rule applied: a dark plate behind a hairline, Outfit 300 at 0.8125rem,
+with a 6px `--ok` dot carrying the "this went well" signal that `--ok` means everywhere
+else. The colour is in the dot, not in the surface — a tinted green panel would be the
+only saturated rectangle on the page.
 
 ## Motion
 
@@ -124,6 +129,12 @@ Hover is answered by brackets closing in around the address, the way a shell pro
 a value — not by the address moving or growing. They hold their space at rest, so
 revealing them shifts nothing, and the address stays exactly where the eye left it. The
 glow handles the entrance and then stops participating.
+
+A click snaps those same brackets shut against the address and lets them spring back:
+90ms in, held 150ms, then the hover state resumes. It is deliberately faster than the
+hover reveal — an acknowledgement of a press is not something anyone should watch finish.
+It fires on the click rather than on the clipboard promise, so the feedback tracks the
+press and not the round trip.
 
 Durations 120ms micro, 200ms standard. Animate `opacity` and `transform` only.
 `prefers-reduced-motion` removes the gradient drift and the fade, and is already honoured

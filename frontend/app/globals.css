@@ -245,6 +245,23 @@ button.ip:focus-visible .ip-bracket {
   transform: none;
 }
 
+/* On click the brackets snap hard against the address and spring straight back. Quick
+   on purpose — this is an acknowledgement, not an animation to watch. */
+button.ip.snap .ip-bracket {
+  opacity: 0.95;
+  transition:
+    opacity 90ms ease-out,
+    transform 90ms cubic-bezier(0.3, 0, 0, 1);
+}
+
+button.ip.snap .ip-bracket.left {
+  transform: translateX(0.34em);
+}
+
+button.ip.snap .ip-bracket.right {
+  transform: translateX(-0.34em);
+}
+
 /* One gradient across the whole address, clipped to the glyphs.
    Nothing may give this element or its children a painting context of their own — not a
    per-glyph opacity, not a transform, not a mask. Any of those stops the clipped
@@ -666,17 +683,38 @@ button.ip {
   top: 24px;
   left: 50%;
   transform: translateX(-50%);
-  background: rgb(16 185 129 / 0.15);
-  backdrop-filter: blur(12px) saturate(180%);
-  -webkit-backdrop-filter: blur(12px) saturate(180%);
-  color: var(--ink);
-  padding: 12px 24px;
-  border-radius: 2rem;
-  border: 1px solid rgb(255 255 255 / 0.15);
-  box-shadow: 0 4px 24px rgb(0 0 0 / 0.15);
-  font-size: 0.875rem;
   z-index: 1000;
+
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+
+  /* Same surface as the fingerprint panels: a dark plate behind a hairline, 4px radius
+     like every other bordered thing on the page. */
+  padding: 10px 16px;
+  border: 1px solid var(--rule-strong);
+  border-radius: 4px;
+  background: rgb(11 11 26 / 0.82);
+  backdrop-filter: blur(12px) saturate(140%);
+  -webkit-backdrop-filter: blur(12px) saturate(140%);
+
+  font-family: var(--font-outfit), sans-serif;
+  font-size: 0.8125rem;
+  font-weight: 300;
+  color: var(--ink);
+  /* It genuinely floats, so it is the one place a shadow is allowed. */
+  box-shadow: 0 8px 32px rgb(0 0 0 / 0.4);
   animation: toast 2.2s ease-in-out forwards;
+}
+
+/* --ok is what the page already uses to mean "this went well", as on agreeing sources. */
+.copied::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--ok);
+  flex: none;
 }
 
 @keyframes toast {
