@@ -103,7 +103,7 @@ export default function BeaconView() {
     if (!reducedMotion) {
       setSnap(true);
       if (snapTimer.current) clearTimeout(snapTimer.current);
-      snapTimer.current = setTimeout(() => setSnap(false), 150);
+      snapTimer.current = setTimeout(() => setSnap(false), 75);
     }
 
     navigator.clipboard.writeText(data.ip).then(

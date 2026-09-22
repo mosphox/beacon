@@ -131,7 +131,7 @@ revealing them shifts nothing, and the address stays exactly where the eye left 
 glow handles the entrance and then stops participating.
 
 A click snaps those same brackets shut against the address and lets them spring back:
-90ms in, held 150ms, then the hover state resumes. It is deliberately faster than the
+45ms in, held 75ms, then the hover state resumes. It is deliberately faster than the
 hover reveal — an acknowledgement of a press is not something anyone should watch finish.
 It fires on the click rather than on the clipboard promise, so the feedback tracks the
 press and not the round trip.

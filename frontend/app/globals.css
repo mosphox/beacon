@@ -250,16 +250,16 @@ button.ip:focus-visible .ip-bracket {
 button.ip.snap .ip-bracket {
   opacity: 0.95;
   transition:
-    opacity 90ms ease-out,
-    transform 90ms cubic-bezier(0.3, 0, 0, 1);
+    opacity 45ms ease-out,
+    transform 45ms cubic-bezier(0.3, 0, 0, 1);
 }
 
 button.ip.snap .ip-bracket.left {
-  transform: translateX(0.34em);
+  transform: translateX(0.17em);
 }
 
 button.ip.snap .ip-bracket.right {
-  transform: translateX(-0.34em);
+  transform: translateX(-0.17em);
 }
 
 /* One gradient across the whole address, clipped to the glyphs.
