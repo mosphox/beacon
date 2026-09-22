@@ -149,9 +149,16 @@ hover reveal — an acknowledgement of a press is not something anyone should wa
 It fires on the click rather than on the clipboard promise, so the feedback tracks the
 press and not the round trip.
 
-Scaling the whole assembly under the press was built and rejected; it is recorded here so
-it is not proposed again. If the click ever wants more than the brackets, `/lab` holds
-nine worked alternatives.
+The address gives under that press at the same moment, receding 36px under a 900px
+perspective — about 4%. It **recedes** rather than scales: the far edges converge and the
+line reads as moving away from you instead of changing size. A flat scale of the same
+magnitude was built first and rejected for exactly that reason; the foreshortening is the
+whole difference. Both ends of the transition name the same transform functions, so they
+interpolate as a list rather than as decomposed matrices.
+
+In is 55ms and out is 180ms. The asymmetry is the point — a press should feel like a
+release, not a round trip — and it is why the address settles a beat after the brackets
+have already come back. `/lab` holds the eight alternatives this was chosen from.
 
 Durations 120ms micro, 200ms standard. Animate `opacity` and `transform` only.
 `prefers-reduced-motion` removes the gradient drift and the fade, and is already honoured
