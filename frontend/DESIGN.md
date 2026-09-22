@@ -94,9 +94,23 @@ Base unit 4px; scale 4 8 12 16 24 32 48 64 96. Nothing between.
 Single column, left-aligned below the fold, centred in the hero. Content max-width 720px.
 Gutters 16px mobile, 24px tablet, 32px desktop. Section rhythm 48px mobile, 64px desktop.
 
+The readout is three levels deep and no more: **section → group → table**. A section is a
+subject and carries an `h2`. A group is one table with a sentence-case caption saying what
+that table is about. Nothing nests further. Sections used to be a single run of rows — TLS
+ran to twenty of them — and nothing marked where "what the client offered" ended and "what
+the two sides agreed on" began.
+
 Rows are a two-column grid: a label column that right-aligns against the hairline, and a
 value column. On mobile the grid collapses to stacked label-over-value — the label column
 would otherwise squeeze values onto three lines.
+
+Hairlines go **between** rows, never after the last one. A trailing rule makes a table's
+bottom edge identical to its internal ones, and the blocks stop closing.
+
+Section headings are sticky inside the readout panel. It is four screens of scrolling with
+no other landmark, and the heading is the only thing that says where you are. It is opaque
+rather than glass: monospaced values slide underneath it, and even 6% transmission left a
+legible ghost of a hash lying across the heading.
 
 ## Shape
 
@@ -180,9 +194,22 @@ segments separated, with the prefix decomposed underneath. This is the one place
 is spent, and it is specific to beacon: it only makes sense because the server computed the
 value and knows what each part means.
 
-**Disagreement is shown, never resolved.** Where two GeoIP sources differ, both claims
-appear side by side, each attributed, marked with `--warn`. Beacon is the only service that
-does this; collapsing it to a single answer would discard the reason it exists.
+**Disagreement is shown, never resolved.** Where the GeoIP sources differ, they get a real
+table — one column per source, one row per field — because the comparison is
+two-dimensional and only lines up as a table. "MaxMind says ±1000 km, DB-IP says ±50 km"
+is a sentence you read off a column, not out of a paragraph. Beacon is the only service
+that does this; collapsing it to a single answer would discard the reason it exists.
+
+The disagreement is marked on the **row**, as a `--warn` edge against the field name, and
+the values stay in `--ink`. Painting the differing values amber was tried first and read
+backwards: two databases usually differ on most fields, so nearly every cell came out
+amber and the one agreeing row was the thing that stood out. Agreement is the quiet
+default and the marker is what you scan for.
+
+This also settles an attribution bug the old layout had: the merged values were listed
+unattributed directly under a heading announcing that the sources disagreed, which left no
+way to tell whose numbers those were. When there is more than one source, every location
+and network field now sits in a column with a name on it.
 
 ## States
 

@@ -26,6 +26,32 @@ export function Section({
 }
 
 /**
+ * Group is one table inside a section, with a caption saying what the table is about.
+ *
+ * Sections used to be a single undifferentiated run of rows — TLS ran to twenty in a
+ * row, and nothing said where "what the client offered" ended and "what the two sides
+ * agreed on" began. The caption is sentence case and quiet on purpose: it is a table
+ * caption, not an eyebrow label, and the section heading above it is the loud one.
+ */
+export function Group({
+  caption,
+  note,
+  children,
+}: {
+  caption?: string;
+  note?: string;
+  children: ReactNode;
+}) {
+  return (
+    <div className="group">
+      {caption ? <h3 className="group-caption">{caption}</h3> : null}
+      {children}
+      {note ? <p className="group-note">{note}</p> : null}
+    </div>
+  );
+}
+
+/**
  * Row renders one label/value pair. A null value is rendered as a stated absence rather
  * than hidden: "no source had this" is an answer, and dropping the row would make the
  * page silently shorter instead of informative.
@@ -34,15 +60,18 @@ export function Row({
   label,
   value,
   absent = 'not available',
+  labelMono = false,
 }: {
   label: string;
   value: ReactNode;
   absent?: string;
+  /** For rows whose label is itself a protocol identifier, such as a SETTINGS name. */
+  labelMono?: boolean;
 }) {
   const empty = value === null || value === undefined || value === '';
   return (
     <div className="row">
-      <dt>{label}</dt>
+      <dt className={labelMono ? 'mono' : undefined}>{label}</dt>
       {empty ? <dd className="absent">{absent}</dd> : <dd>{value}</dd>}
     </div>
   );
@@ -50,6 +79,79 @@ export function Row({
 
 export function Rows({ children }: { children: ReactNode }) {
   return <dl className="rows">{children}</dl>;
+}
+
+export type CompareRow = {
+  label: string;
+  /** One entry per column, in the same order as `columns`. */
+  values: (string | null)[];
+};
+
+/**
+ * Compare puts the sources side by side, one column each, and marks the fields where
+ * they disagree.
+ *
+ * This is the page's reason to exist, so it gets a real table rather than a stack of
+ * attributed claims: the comparison is two-dimensional and a table is what makes
+ * "MaxMind says ±1000 km, DB-IP says ±50 km" legible at a glance. It also removes an
+ * older ambiguity — the merged values used to be listed unattributed underneath a
+ * heading that said the sources disagreed, which left the reader no way to tell whose
+ * numbers those were.
+ *
+ * Below 640px the same markup restyles into stacked blocks, each value prefixed with its
+ * source, because three columns of place names do not fit a phone.
+ */
+export function Compare({
+  columns,
+  rows,
+  absent = 'not available',
+}: {
+  columns: string[];
+  rows: CompareRow[];
+  absent?: string;
+}) {
+  return (
+    /* The roles are redundant on a table that renders as a table — and load-bearing on
+       one that does not. The narrow variant sets `display: block` on these elements,
+       which drops their implicit table roles in Chrome and Safari, so the columns stop
+       being columns to a screen reader exactly where the visual columns are gone too. */
+    <table className="compare" role="table">
+      <thead>
+        <tr role="row">
+          <th scope="col" role="columnheader">
+            <span className="sr-only">Field</span>
+          </th>
+          {columns.map((c) => (
+            <th scope="col" role="columnheader" key={c}>
+              {c}
+            </th>
+          ))}
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((r) => {
+          const differs = r.values.some((v) => v !== r.values[0]);
+          return (
+            <tr role="row" key={r.label} className={differs ? 'differs' : undefined}>
+              <th scope="row" role="rowheader">
+                {r.label}
+              </th>
+              {r.values.map((v, i) => (
+                <td
+                  role="cell"
+                  key={columns[i]}
+                  data-source={columns[i]}
+                  className={v === null ? 'absent' : undefined}
+                >
+                  {v ?? absent}
+                </td>
+              ))}
+            </tr>
+          );
+        })}
+      </tbody>
+    </table>
+  );
 }
 
 export function Flag({ on, children }: { on: boolean; children: ReactNode }) {

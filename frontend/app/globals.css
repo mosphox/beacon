@@ -393,13 +393,23 @@ button.ip {
   }
 }
 
+/* The readout is roughly four screens inside a panel that scrolls on its own, so the
+   heading stays put while its section does. It is the only thing telling you where you
+   are, and it costs no extra chrome to keep it visible. */
 .section-head {
+  position: sticky;
+  top: 0;
+  z-index: 2;
   display: flex;
   align-items: baseline;
   justify-content: space-between;
   gap: 16px;
-  padding-bottom: 8px;
+  padding: 12px 0 8px;
   border-bottom: 1px solid var(--rule-strong);
+  /* Opaque, not glass. The toast floats over the page and wants the gradient through it;
+     this one has monospaced values sliding underneath and has to stop them. Even 6%
+     transmission left a legible ghost of a hash across the heading. */
+  background: var(--bg-0);
 }
 
 .section-head h2 {
@@ -434,6 +444,30 @@ button.ip {
   max-width: 68ch;
 }
 
+/* A section holds one or more captioned tables. The gap between them is what makes each
+   read as a block; the caption says which block. */
+.group + .group {
+  margin-top: 28px;
+}
+
+/* Sentence case, quiet, aligned with the table it heads — a table caption rather than an
+   eyebrow label. The section heading above is the loud one and this must not compete. */
+.group-caption {
+  font-size: 0.8125rem;
+  font-weight: 400;
+  color: var(--ink-2);
+  margin-top: 20px;
+}
+
+.group-note {
+  margin-top: 12px;
+  font-size: 0.8125rem;
+  font-weight: 300;
+  line-height: 1.6;
+  color: var(--ink-3);
+  max-width: 68ch;
+}
+
 /* Rows are a table, not cards: a quiet label column against a hairline, and the value. */
 .rows {
   margin-top: 8px;
@@ -444,7 +478,12 @@ button.ip {
   grid-template-columns: 1fr;
   gap: 2px;
   padding: 10px 0;
-  border-bottom: 1px solid var(--rule);
+}
+
+/* Between rows, never after the last one. A trailing rule made every table's bottom edge
+   look identical to its internal ones, so the blocks never closed. */
+.row + .row {
+  border-top: 1px solid var(--rule);
 }
 
 @media (min-width: 640px) {
@@ -465,6 +504,13 @@ button.ip {
   .row dt {
     text-align: right;
   }
+}
+
+/* A SETTINGS name is not a word someone wrote, it is the identifier the RFC defines. */
+.row dt.mono {
+  font-family: var(--font-jetbrains), monospace;
+  font-size: 0.75rem;
+  user-select: text;
 }
 
 .row dd {
@@ -503,56 +549,146 @@ button.ip {
   border-color: color-mix(in srgb, var(--accent) 40%, transparent);
 }
 
-/* --------------------------------------------------------- source claims */
+/* ------------------------------------------------------ source comparison */
 
-.claim {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 4px;
-  padding: 12px 0;
-  border-bottom: 1px solid var(--rule);
+/* Sources side by side, one column each. This is the page's reason to exist, so the
+   disagreement gets a real table: two databases claiming different cities is a
+   two-dimensional fact and reads as one only when the columns line up. */
+.compare {
+  width: 100%;
+  margin-top: 8px;
+  border-collapse: collapse;
+  text-align: left;
 }
 
-@media (min-width: 640px) {
-  .claim {
-    grid-template-columns: 180px 1fr;
-    gap: 24px;
-    align-items: baseline;
-  }
+.compare thead th {
+  padding: 0 0 8px;
+  font-family: var(--font-outfit), sans-serif;
+  font-size: 0.75rem;
+  font-weight: 400;
+  color: var(--accent);
+  border-bottom: 1px solid var(--rule-strong);
+  vertical-align: bottom;
 }
 
-.claim-source {
+.compare tbody tr + tr th,
+.compare tbody tr + tr td {
+  border-top: 1px solid var(--rule);
+}
+
+.compare tbody th {
+  width: 8.5rem;
+  padding: 10px 24px 10px 10px;
+  /* Reserved at every row so marking one shifts nothing. */
+  border-left: 2px solid transparent;
   font-size: 0.8125rem;
   font-weight: 300;
   color: var(--ink-3);
+  vertical-align: baseline;
+  white-space: nowrap;
 }
 
-@media (min-width: 640px) {
-  .claim-source {
-    text-align: right;
-  }
+.compare td {
+  padding: 10px 24px 10px 0;
+  font-family: var(--font-jetbrains), monospace;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  color: var(--ink);
+  vertical-align: baseline;
+  overflow-wrap: anywhere;
+  user-select: text;
 }
 
-.claim-source.differs {
+.compare td:last-child {
+  padding-right: 0;
+}
+
+/* The disagreement is marked on the row, not painted over the values.
+   Colouring the values themselves was tried first and read backwards: two databases
+   usually differ on most fields, so nearly every cell came out amber and the one
+   agreeing row was the one that stood out. Agreement is the quiet default; the marker
+   is what you scan for. */
+.compare tr.differs th {
+  border-left-color: var(--warn);
   color: var(--warn);
 }
 
-.claim-value {
-  font-family: var(--font-jetbrains), monospace;
-  font-size: 0.875rem;
-  color: var(--ink);
-  user-select: text;
+/* --ink-3, not the --ink-4 the row tables use for an absence. Here the absence is a
+   difference — one source has a postal code and the other does not — so it carries
+   information and has to clear 4.5:1. */
+.compare td.absent {
+  font-family: var(--font-outfit), sans-serif;
+  font-style: italic;
+  color: var(--ink-3);
+  user-select: none;
 }
 
-/* Block, not inline: the coordinates would otherwise wrap mid-value on a narrow
-   screen and read as part of the place name. */
-.claim-meta {
-  display: block;
-  margin-top: 2px;
-  font-family: var(--font-jetbrains), monospace;
-  font-size: 0.75rem;
-  color: var(--ink-3);
-  user-select: text;
+/* Three columns of place names do not fit a phone. Same markup, stacked: each value
+   carries its source as a prefix, so the attribution survives losing the columns. */
+@media (max-width: 639px) {
+  .compare,
+  .compare tbody,
+  .compare tr,
+  .compare td {
+    display: block;
+    width: auto;
+  }
+
+  /* Hidden from the eye, kept in the accessibility tree: `display: none` here would
+     take the column headers with it, and they are what attributes each value to a
+     source once the columns are gone. */
+  .compare thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  .compare tbody tr + tr {
+    margin-top: 4px;
+    border-top: 1px solid var(--rule);
+  }
+
+  .compare tbody tr + tr th,
+  .compare tbody tr + tr td {
+    border-top: 0;
+  }
+
+  .compare tbody th {
+    display: block;
+    width: auto;
+    padding: 10px 0 2px 10px;
+    white-space: normal;
+  }
+
+  .compare td {
+    padding: 0 0 4px;
+  }
+
+  /* The prefix stands in for the column header, so it gets the column's width back:
+     fixed here, the values line up down the block the way they would in the table. */
+  .compare td::before {
+    content: attr(data-source);
+    display: inline-block;
+    min-width: 4.5rem;
+    font-family: var(--font-outfit), sans-serif;
+    font-style: normal;
+    font-size: 0.6875rem;
+    color: var(--accent);
+  }
+}
+
+/* Used by the comparison table's empty corner cell, which needs a name for screen
+   readers and nothing at all on screen. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 /* ---------------------------------------------------------- fingerprint */
@@ -651,6 +787,9 @@ button.ip {
   font-size: 0.75rem;
   padding: 2px 8px;
   cursor: pointer;
+  /* The section heading is sticky over this panel, and tabbing to a button just under
+     it would otherwise scroll it to exactly where the heading covers it. */
+  scroll-margin-top: 64px;
 }
 
 .more:hover {

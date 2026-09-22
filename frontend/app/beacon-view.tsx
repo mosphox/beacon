@@ -5,8 +5,10 @@ import { usePathname } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 
 import { AkamaiBreakdown, Ja4Breakdown } from './components/fingerprint';
-import { Chips, Flag, Row, Rows, Section } from './components/rows';
-import type { BeaconResponse, Location, Source } from '@/lib/types';
+import type { CompareRow } from './components/rows';
+import { Chips, Compare, Flag, Group, Row, Rows, Section } from './components/rows';
+import type { BeaconResponse, Location, Network } from '@/lib/types';
+import { PSEUDO_HEADER_NAMES, SETTING_NAMES } from '@/lib/types';
 
 type Status = 'loading' | 'ready' | 'error';
 
@@ -263,177 +265,188 @@ function HeroPlace({ data }: { data: BeaconResponse }) {
   );
 }
 
+/* --------------------------------------------------------------- connection */
+
 function Connection({ data }: { data: BeaconResponse }) {
   const { flags } = data;
-  const anyFlag = flags.anycast || flags.anonymous_proxy || flags.satellite_provider;
+  const marks = [
+    flags.anycast ? 'anycast' : null,
+    flags.anonymous_proxy ? 'anonymous proxy' : null,
+    flags.satellite_provider ? 'satellite' : null,
+  ].filter((m): m is string => m !== null);
 
   return (
     <Section title="Connection">
-      <Rows>
-        <Row label="Address" value={data.ip} />
-        <Row
-          label="Family"
-          value={data.family === 'ipv6' ? 'IPv6' : data.family === 'ipv4' ? 'IPv4' : null}
-        />
-        <Row label="Reverse DNS" value={data.hostname} absent="no PTR record" />
-        {anyFlag ? (
+      <Group>
+        <Rows>
+          <Row label="Address" value={data.ip} />
+          <Row
+            label="Family"
+            value={data.family === 'ipv6' ? 'IPv6' : data.family === 'ipv4' ? 'IPv4' : null}
+          />
+          <Row label="Reverse DNS" value={data.hostname} absent="no PTR record" />
           <Row
             label="Marked as"
+            /* Stated rather than hidden. "Nothing unusual" is the answer most addresses
+               get, and it is worth saying out loud. */
+            absent="nothing unusual"
             value={
-              <>
-                {flags.anycast ? <Flag on>anycast</Flag> : null}
-                {flags.anonymous_proxy ? <Flag on>anonymous proxy</Flag> : null}
-                {flags.satellite_provider ? <Flag on>satellite</Flag> : null}
-              </>
+              marks.length > 0 ? (
+                <>
+                  {marks.map((m) => (
+                    <Flag key={m} on>
+                      {m}
+                    </Flag>
+                  ))}
+                </>
+              ) : null
             }
           />
-        ) : null}
-      </Rows>
+        </Rows>
+      </Group>
     </Section>
   );
 }
 
+/* ----------------------------------------------------------------- location */
+
+/**
+ * The location fields, in two blocks.
+ *
+ * `place` is what a database was asked for; `admin` is what follows from the country it
+ * named. Splitting them matters when the sources disagree — two databases can put you in
+ * different cities while agreeing on everything in the second block, and running all nine
+ * fields together hid that.
+ *
+ * Each field is a function of a Location so the same list drives both the single-source
+ * table and the side-by-side comparison. One definition, two renderings.
+ */
+type Field<T> = { label: string; of: (v: T) => string | null };
+
+const PLACE_FIELDS: Field<Location>[] = [
+  { label: 'Place', of: (l) => placeOf(l) || null },
+  { label: 'Postal code', of: (l) => l.postal_code },
+  { label: 'Coordinates', of: (l) => coordsOf(l) },
+  {
+    label: 'Accuracy',
+    of: (l) => (l.accuracy_radius_km === null ? null : `±${l.accuracy_radius_km}\u00A0km`),
+  },
+  { label: 'Time zone', of: (l) => l.timezone },
+  { label: 'Local time', of: (l) => (clockOf(l) ? `${clockOf(l)} there` : null) },
+];
+
+const ADMIN_FIELDS: Field<Location>[] = [
+  { label: 'Continent', of: (l) => l.continent },
+  {
+    label: 'European Union',
+    of: (l) => (l.country_code ? (l.in_european_union ? 'yes' : 'no') : null),
+  },
+  {
+    label: 'Registered to',
+    of: (l) =>
+      l.registered_country
+        ? `${l.registered_country}${
+            l.registered_country_code ? ` (${l.registered_country_code})` : ''
+          }`
+        : null,
+  },
+];
+
+function compareRows<T>(fields: Field<T>[], subjects: T[]): CompareRow[] {
+  return fields.map((f) => ({ label: f.label, values: subjects.map(f.of) }));
+}
+
+function plainRows<T>(fields: Field<T>[], subject: T) {
+  return fields.map((f) => <Row key={f.label} label={f.label} value={f.of(subject)} />);
+}
+
 function LocationSection({ data }: { data: BeaconResponse }) {
   const { location, sources, sources_agree: agree } = data;
+
+  if (sources.length === 0) {
+    return (
+      <Section title="Location">
+        <p className="note">
+          No database has a location for this address. Private and reserved ranges are not
+          geolocated.
+        </p>
+      </Section>
+    );
+  }
+
+  const names = sources.map((s) => s.source);
+  const places = sources.map((s) => s.location);
   const multiple = sources.length > 1;
 
   return (
     <Section
       title="Location"
-      note={
-        sources.length === 0
-          ? undefined
-          : multiple
-            ? agree
-              ? `${sources.length} sources agree`
-              : `${sources.length} sources disagree`
-            : `1 source`
-      }
+      note={multiple ? `${sources.length} sources ${agree ? 'agree' : 'disagree'}` : names[0]}
       noteTone={multiple ? (agree ? 'agree' : 'differ') : undefined}
       intro={
         multiple && !agree
-          ? 'Two databases place this address differently. Both answers are shown as reported; neither is corrected against the other.'
+          ? 'The databases place this address differently. Both answers stand as reported; neither is corrected against the other, and the fields they differ on are marked.'
           : undefined
       }
     >
-      {sources.length === 0 ? (
-        <p className="note">
-          No database has a location for this address. Private and reserved ranges are not
-          geolocated.
-        </p>
-      ) : multiple ? (
-        <div className="rows">
-          {sources.map((s) => (
-            <Claim key={s.source} source={s} differs={!agree} />
-          ))}
-        </div>
-      ) : null}
+      <Group caption="Where it puts you">
+        {multiple ? (
+          <Compare columns={names} rows={compareRows(PLACE_FIELDS, places)} />
+        ) : (
+          <Rows>{plainRows(PLACE_FIELDS, location)}</Rows>
+        )}
+      </Group>
 
-      <Rows>
-        {!multiple && sources.length > 0 ? (
-          <Row label="Place" value={placeOf(location)} />
-        ) : null}
-        <Row label="Postal code" value={location.postal_code} />
-        <Row
-          label="Coordinates"
-          value={
-            coordsOf(location) ? (
-              <>
-                {coordsOf(location)}
-                {location.accuracy_radius_km !== null ? (
-                  <span className="unit">{` ±${location.accuracy_radius_km} km`}</span>
-                ) : null}
-              </>
-            ) : null
-          }
-        />
-        <Row
-          label="Time zone"
-          value={
-            location.timezone ? (
-              <>
-                {location.timezone}
-                {clockOf(location) ? <span className="unit">{` · ${clockOf(location)} there`}</span> : null}
-              </>
-            ) : null
-          }
-        />
-        <Row label="Continent" value={location.continent} />
-        <Row
-          label="European Union"
-          value={location.country_code ? (location.in_european_union ? 'yes' : 'no') : null}
-        />
-        <Row
-          label="Registered to"
-          value={
-            location.registered_country
-              ? `${location.registered_country}${
-                  location.registered_country_code ? ` (${location.registered_country_code})` : ''
-                }`
-              : null
-          }
-        />
-      </Rows>
+      <Group caption="Country and registry">
+        {multiple ? (
+          <Compare columns={names} rows={compareRows(ADMIN_FIELDS, places)} />
+        ) : (
+          <Rows>{plainRows(ADMIN_FIELDS, location)}</Rows>
+        )}
+      </Group>
     </Section>
   );
 }
 
-function Claim({ source, differs }: { source: Source; differs: boolean }) {
-  const place = placeOf(source.location);
-  return (
-    <div className="claim">
-      <span className={differs ? 'claim-source differs' : 'claim-source'}>{source.source}</span>
-      <span>
-        <span className="claim-value">{place || 'no location'}</span>
-        {coordsOf(source.location) ? (
-          <span className="claim-meta">
-            {coordsOf(source.location)}
-            {source.location.accuracy_radius_km !== null
-              ? ` ±${source.location.accuracy_radius_km} km`
-              : ''}
-          </span>
-        ) : null}
-      </span>
-    </div>
-  );
-}
+/* ------------------------------------------------------------------ network */
+
+const NETWORK_FIELDS: Field<Network>[] = [
+  { label: 'Autonomous system', of: (n) => (n.asn === null ? null : `AS${n.asn}`) },
+  { label: 'Operator', of: (n) => n.asn_org },
+];
 
 function NetworkSection({ data }: { data: BeaconResponse }) {
   const { network, sources } = data;
-  const orgs = [...new Set(sources.map((s) => s.network.asn_org).filter(Boolean))];
-  const disagrees = orgs.length > 1;
+  const multiple = sources.length > 1;
+  const orgs = new Set(sources.map((s) => s.network.asn_org).filter(Boolean));
+  const asns = new Set(sources.map((s) => s.network.asn).filter((a) => a !== null));
 
   return (
     <Section title="Network">
-      <Rows>
-        <Row label="Autonomous system" value={network.asn !== null ? `AS${network.asn}` : null} />
-        <Row
-          label="Organisation"
-          value={
-            disagrees ? (
-              <>
-                {orgs.map((o, i) => (
-                  <span key={o}>
-                    {o}
-                    {i < orgs.length - 1 ? <span className="unit"> / </span> : null}
-                  </span>
-                ))}
-              </>
-            ) : (
-              network.asn_org
-            )
-          }
-        />
-      </Rows>
-      {disagrees ? (
-        <p className="note">
-          The sources agree on the network but spell its operator differently. That is a naming
-          difference, not a disagreement about where the traffic goes.
-        </p>
-      ) : null}
+      <Group
+        note={
+          orgs.size > 1 && asns.size === 1
+            ? 'The sources agree on the network but spell its operator differently. That is a naming difference, not a disagreement about where the traffic goes.'
+            : undefined
+        }
+      >
+        {multiple ? (
+          <Compare
+            columns={sources.map((s) => s.source)}
+            rows={compareRows(
+              NETWORK_FIELDS,
+              sources.map((s) => s.network),
+            )}
+          />
+        ) : (
+          <Rows>{plainRows(NETWORK_FIELDS, network)}</Rows>
+        )}
+      </Group>
     </Section>
   );
 }
+
+/* ---------------------------------------------------------------------- TLS */
 
 function TlsSection({
   data,
@@ -465,73 +478,76 @@ function TlsSection({
       title="TLS"
       intro="How your client opened the connection. The same browser on the same machine produces the same values, which is what makes them useful for identifying software."
     >
-      <Ja4Breakdown ja4={tls.ja4} />
+      <Group
+        caption="Fingerprints"
+        note={
+          tls.ja4 === tls.ja4_o
+            ? 'The sorted and wire-order forms match, so this client sends its extensions in a stable order.'
+            : 'The sorted and wire-order forms differ, so this client shuffles its extension order on every connection. That is why the sorted form exists.'
+        }
+      >
+        <Ja4Breakdown ja4={tls.ja4} />
+        <Rows>
+          <Row label="JA4" value={tls.ja4} />
+          <Row label="JA4 (wire order)" value={tls.ja4_o} />
+          <Row label="JA3" value={tls.ja3_hash} />
+          <Row label="JA3 (sorted)" value={tls.ja3n_hash} />
+        </Rows>
+      </Group>
 
-      <Rows>
-        <Row label="JA4" value={tls.ja4} />
-        <Row label="JA4 (wire order)" value={tls.ja4_o} />
-        <Row label="JA3" value={tls.ja3_hash} />
-        <Row label="JA3 (sorted)" value={tls.ja3n_hash} />
-      </Rows>
-
-      <p className="note">
-        {tls.ja4 === tls.ja4_o
-          ? 'The sorted and wire-order forms match, so this client sends its extensions in a stable order.'
-          : 'The sorted and wire-order forms differ, so this client shuffles its extension order on every connection. That is why the sorted form exists.'}
-      </p>
-
-      <Rows>
-        <Row label="Offered" value={hello.version} />
-        <Row label="Server name" value={hello.server_name} absent="none sent" />
-        <Row label="ALPN" value={hello.alpn.length > 0 ? hello.alpn.join(', ') : null} />
-        <Row label="GREASE" value={hello.grease ? 'present' : 'absent'} />
-        {hello.truncated ? (
-          <Row
-            label="Client hello"
-            value="too large to show in full; the fingerprints above still cover all of it"
-          />
-        ) : (
-          <>
+      <Group caption="What your client offered">
+        <Rows>
+          <Row label="Version" value={hello.version} />
+          <Row label="Server name" value={hello.server_name} absent="none sent" />
+          <Row label="ALPN" value={hello.alpn.length > 0 ? hello.alpn.join(', ') : null} />
+          <Row label="GREASE" value={hello.grease ? 'present' : 'absent'} />
+          {hello.truncated ? (
             <Row
-              label="Cipher suites"
-              value={
-                <Chips
-                  items={hello.cipher_suites}
-                  expanded={!!showAll.ciphers}
-                  onExpand={() => onExpand('ciphers')}
-                  label="cipher suites"
-                />
-              }
+              label="Client hello"
+              value="too large to show in full; the fingerprints above still cover all of it"
             />
-            <Row
-              label="Extensions"
-              value={
-                <Chips
-                  items={hello.extensions}
-                  expanded={!!showAll.extensions}
-                  onExpand={() => onExpand('extensions')}
-                  label="extensions"
-                />
-              }
-            />
-            <Row
-              label="Groups"
-              value={
-                <Chips
-                  items={hello.supported_groups}
-                  expanded
-                  onExpand={() => {}}
-                  label="groups"
-                />
-              }
-            />
-          </>
-        )}
-      </Rows>
+          ) : (
+            <>
+              <Row
+                label="Cipher suites"
+                value={
+                  <Chips
+                    items={hello.cipher_suites}
+                    expanded={!!showAll.ciphers}
+                    onExpand={() => onExpand('ciphers')}
+                    label="cipher suites"
+                  />
+                }
+              />
+              <Row
+                label="Extensions"
+                value={
+                  <Chips
+                    items={hello.extensions}
+                    expanded={!!showAll.extensions}
+                    onExpand={() => onExpand('extensions')}
+                    label="extensions"
+                  />
+                }
+              />
+              <Row
+                label="Groups"
+                value={
+                  <Chips
+                    items={hello.supported_groups}
+                    expanded
+                    onExpand={() => {}}
+                    label="groups"
+                  />
+                }
+              />
+            </>
+          )}
+        </Rows>
+      </Group>
 
       {tls.negotiated ? (
-        <>
-          <p className="note">What the two sides settled on:</p>
+        <Group caption="What the two sides agreed on">
           <Rows>
             <Row label="Version" value={tls.negotiated.version} />
             <Row label="Cipher" value={tls.negotiated.cipher_suite} />
@@ -539,11 +555,13 @@ function TlsSection({
             <Row label="Protocol" value={tls.negotiated.alpn} />
             <Row label="Resumed" value={tls.negotiated.resumed ? 'yes' : 'no'} />
           </Rows>
-        </>
+        </Group>
       ) : null}
     </Section>
   );
 }
+
+/* ------------------------------------------------------------------- HTTP/2 */
 
 function Http2Section({ data }: { data: BeaconResponse }) {
   const h2 = data.http2;
@@ -559,25 +577,58 @@ function Http2Section({ data }: { data: BeaconResponse }) {
     );
   }
 
+  const order = h2.pseudo_header_order.map((c) => PSEUDO_HEADER_NAMES[c] ?? `:${c}`);
+
   return (
     <Section
       title="HTTP/2"
       intro="The frames your client sent before asking for anything. Libraries and browsers differ here more than you might expect."
     >
-      <AkamaiBreakdown akamai={h2.akamai} />
-      <Rows>
-        <Row label="Fingerprint" value={h2.akamai_hash} />
-        <Row
-          label="Window update"
-          value={h2.window_update > 0 ? `${h2.window_update.toLocaleString()} bytes` : null}
-          absent="none sent"
-        />
-        <Row
-          label="Priority frames"
-          value={h2.priorities.length > 0 ? String(h2.priorities.length) : null}
-          absent="none sent"
-        />
-      </Rows>
+      <Group caption="Fingerprint">
+        <AkamaiBreakdown akamai={h2.akamai} />
+        <Rows>
+          <Row label="Hash" value={h2.akamai_hash} />
+        </Rows>
+      </Group>
+
+      <Group
+        caption="Settings the client sent"
+        note={
+          h2.settings.length === 0
+            ? 'This client sent an empty SETTINGS frame, which is legal and unusual.'
+            : undefined
+        }
+      >
+        <Rows>
+          {h2.settings.map((s) => (
+            <Row
+              key={s.id}
+              labelMono
+              label={SETTING_NAMES[s.id] ?? `SETTING_${s.id}`}
+              value={s.value.toLocaleString()}
+            />
+          ))}
+        </Rows>
+      </Group>
+
+      <Group caption="Everything else in the preamble">
+        <Rows>
+          <Row
+            label="Window update"
+            value={h2.window_update > 0 ? `${h2.window_update.toLocaleString()}\u00A0bytes` : null}
+            absent="none sent"
+          />
+          <Row
+            label="Priority frames"
+            value={h2.priorities.length > 0 ? String(h2.priorities.length) : null}
+            absent="none sent"
+          />
+          <Row
+            label="Pseudo-header order"
+            value={order.length > 0 ? order.join(' ') : null}
+          />
+        </Rows>
+      </Group>
     </Section>
   );
 }
