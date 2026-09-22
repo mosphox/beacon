@@ -6,6 +6,17 @@
   --bg-1: #1a1a2e;
   --bg-2: #16213e;
 
+  /* The page background, defined once. The body paints it, and so does anything that
+     has to sit opaquely on top of it — a sticky heading cannot use a flat colour here
+     without reading as a bar pasted over the gradient. Both layers are viewport-fixed,
+     so a second element painting them lands exactly on the original. */
+  --page-base: linear-gradient(160deg, #0b0b1a 0%, #14142b 40%, #101a35 70%, #0d1b2a 100%);
+  --page-wash:
+    radial-gradient(ellipse 80% 60% at 15% 15%, rgb(0 180 216 / 0.16) 0%, transparent 60%),
+    radial-gradient(ellipse 70% 70% at 85% 25%, rgb(124 58 237 / 0.22) 0%, transparent 60%),
+    radial-gradient(ellipse 90% 60% at 75% 85%, rgb(236 72 153 / 0.14) 0%, transparent 60%),
+    radial-gradient(ellipse 60% 50% at 20% 80%, rgb(16 185 129 / 0.1) 0%, transparent 60%);
+
   --rule: rgb(255 255 255 / 0.07);
   --rule-strong: rgb(255 255 255 / 0.12);
 
@@ -50,7 +61,7 @@ html {
 body {
   min-height: 100svh;
   font-family: var(--font-outfit), sans-serif;
-  background: linear-gradient(160deg, #0b0b1a 0%, #14142b 40%, #101a35 70%, #0d1b2a 100%);
+  background: var(--page-base);
   background-attachment: fixed;
   color: var(--ink);
   /* The page reads as an instrument, not a document, so chrome is not selectable —
@@ -67,11 +78,7 @@ body::before {
   content: '';
   position: fixed;
   inset: 0;
-  background:
-    radial-gradient(ellipse 80% 60% at 15% 15%, rgb(0 180 216 / 0.16) 0%, transparent 60%),
-    radial-gradient(ellipse 70% 70% at 85% 25%, rgb(124 58 237 / 0.22) 0%, transparent 60%),
-    radial-gradient(ellipse 90% 60% at 75% 85%, rgb(236 72 153 / 0.14) 0%, transparent 60%),
-    radial-gradient(ellipse 60% 50% at 20% 80%, rgb(16 185 129 / 0.1) 0%, transparent 60%);
+  background: var(--page-wash);
   pointer-events: none;
   z-index: 0;
 }
@@ -393,23 +400,19 @@ button.ip {
   }
 }
 
-/* The readout is roughly four screens inside a panel that scrolls on its own, so the
-   heading stays put while its section does. It is the only thing telling you where you
-   are, and it costs no extra chrome to keep it visible. */
+/* Deliberately not sticky. It was tried: the readout is four screens inside a panel that
+   scrolls on its own, and a heading that stays put is real wayfinding. But a sticky
+   heading has to hide the rows passing under it, and over a fixed two-layer gradient
+   there is no honest way to do that — a flat colour reads as a bar pasted on the page,
+   and repainting the page's own background matches everywhere except the edges of the
+   heading's own box. The bar was worse than the missing landmark. */
 .section-head {
-  position: sticky;
-  top: 0;
-  z-index: 2;
   display: flex;
   align-items: baseline;
   justify-content: space-between;
   gap: 16px;
-  padding: 12px 0 8px;
+  padding-bottom: 8px;
   border-bottom: 1px solid var(--rule-strong);
-  /* Opaque, not glass. The toast floats over the page and wants the gradient through it;
-     this one has monospaced values sliding underneath and has to stop them. Even 6%
-     transmission left a legible ghost of a hash across the heading. */
-  background: var(--bg-0);
 }
 
 .section-head h2 {
@@ -787,9 +790,6 @@ button.ip {
   font-size: 0.75rem;
   padding: 2px 8px;
   cursor: pointer;
-  /* The section heading is sticky over this panel, and tabbing to a button just under
-     it would otherwise scroll it to exactly where the heading covers it. */
-  scroll-margin-top: 64px;
 }
 
 .more:hover {

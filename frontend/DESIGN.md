@@ -79,7 +79,10 @@ design decision, not a chore.
 
 Four atmospheric radial washes — teal, violet, magenta, green — sit fixed behind
 everything over a four-stop base, so the corners differ from each other rather than being
-one navy ramp. They are the only decoration in the system and they do not scroll.
+one navy ramp. They are the only decoration in the system and they do not scroll. The two
+layers are `--page-wash` and `--page-base`; the page background is defined once, in those
+tokens, and anything that ever needs to sit opaquely on top of it repaints them in that
+order rather than approximating with a flat colour.
 
 The cyan→violet→pink gradient belongs to the address and to nothing else. Reusing it on
 headings or buttons would spend the page's one memorable moment on furniture.
@@ -107,10 +110,11 @@ would otherwise squeeze values onto three lines.
 Hairlines go **between** rows, never after the last one. A trailing rule makes a table's
 bottom edge identical to its internal ones, and the blocks stop closing.
 
-Section headings are sticky inside the readout panel. It is four screens of scrolling with
-no other landmark, and the heading is the only thing that says where you are. It is opaque
-rather than glass: monospaced values slide underneath it, and even 6% transmission left a
-legible ghost of a hash lying across the heading.
+Nothing in the readout is sticky, and a sticky section heading was tried and taken out. It
+would have to hide the rows passing under it, and over a fixed two-layer gradient there is
+no honest way: a flat colour reads as a bar pasted on the page, and repainting the page's
+own background matches everywhere except along the edges of the heading's own box. Four
+screens with no landmark is a real cost, but a bar across every heading is a worse one.
 
 ## Shape
 
