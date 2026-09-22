@@ -23,6 +23,18 @@ one viewport each. The readout's own scrolling happens inside its panel, which i
 there are only ever two snap points — a taller second section would make mandatory
 snapping fight every scroll through it.
 
+**The step between the two costs something.** Mandatory snapping on its own commits on the
+smallest flick: one notch of a wheel and the page has changed under you, which is wrong
+for a movement this large. So the wheel is taken over at the two places a panel change
+could happen, and the deck moves at 45% of the wheel's travel — visibly resisting rather
+than ignoring you — handing back to the snap only once you have pushed it 35% of the way
+in. Stop short and it returns where it came from. That works out at about six notches of a
+mouse wheel, or one decisive trackpad swipe.
+
+Touch and keyboard are deliberately left native. A drag and an arrow key are already
+deliberate acts; it was the flick that was too cheap. The scroll cue and the skip link are
+explicit requests and go straight there.
+
 Not this: identical rounded cards with the same shadow under each, a tracked-out ALL-CAPS
 label above every section, a fade-and-slide-up as each section scrolls into view, `→`
 appended to links.

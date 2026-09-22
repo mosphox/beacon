@@ -111,6 +111,14 @@ body:has(.deck) {
   scrollbar-width: none;
 }
 
+/* Set while a wheel gesture is moving the deck by hand. Snapping has to be off or it
+   fights every assignment to scrollTop, and the scroll behaviour has to be instant or
+   the deck lags a frame behind the wheel. See useFirmDeck. */
+.deck.free {
+  scroll-snap-type: none;
+  scroll-behavior: auto;
+}
+
 .deck::-webkit-scrollbar {
   display: none;
 }
@@ -378,6 +386,9 @@ button.ip {
 .readout-panel {
   overflow-y: auto;
   overflow-x: hidden;
+  /* No chaining to the deck. Reaching the top of the readout must not spill into
+     changing panel; that step is deliberate and goes through useFirmDeck. */
+  overscroll-behavior: contain;
   scrollbar-width: thin;
   scrollbar-color: var(--rule-strong) transparent;
 }

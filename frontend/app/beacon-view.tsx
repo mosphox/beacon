@@ -44,6 +44,7 @@ export default function BeaconView() {
   const [snap, setSnap] = useState(false);
   const snapTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [showAll, setShowAll] = useState<Record<string, boolean>>({});
+  const deckRef = useRef<HTMLElement>(null);
   const readoutRef = useRef<HTMLElement>(null);
   const addressRef = useRef<HTMLButtonElement>(null);
   const reducedMotion = useReducedMotion();
@@ -96,6 +97,8 @@ export default function BeaconView() {
   }, [copied]);
 
   useEffect(() => () => void (snapTimer.current && clearTimeout(snapTimer.current)), []);
+
+  useFirmDeck(deckRef, readoutRef, status === 'ready' && data !== null, reducedMotion);
 
   function copy() {
     if (!data?.ip || !navigator.clipboard) return;
@@ -152,7 +155,7 @@ export default function BeaconView() {
         Skip to connection details
       </a>
 
-      <main className="deck">
+      <main className="deck" ref={deckRef}>
         <section className="panel hero">
           <div
             className="hero-inner"
@@ -263,6 +266,120 @@ function HeroPlace({ data }: { data: BeaconResponse }) {
       {network.asn_label ? <p className="hero-asn">{network.asn_label}</p> : null}
     </>
   );
+}
+
+/* ------------------------------------------------------------- deck gesture */
+
+/** Fraction of the wheel's travel the deck actually moves. */
+const DAMP = 0.45;
+/** How far into the next panel you have to push before it takes over. */
+const COMMIT = 0.35;
+/** Together: about six notches of a mouse wheel, or one decisive trackpad swipe. */
+
+/** Stop accumulating if the wheel goes quiet for this long, and return where you came from. */
+const IDLE_MS = 260;
+
+/** Roughly what a line and a page are worth, for wheels that report in them. */
+function wheelPixels(e: WheelEvent, page: number): number {
+  if (e.deltaMode === 1) return e.deltaY * 40;
+  if (e.deltaMode === 2) return e.deltaY * page;
+  return e.deltaY;
+}
+
+/**
+ * Makes the step between the two panels cost something.
+ *
+ * Mandatory scroll snapping commits on the smallest flick — one notch of a wheel and the
+ * page has changed under you. This takes the wheel over at the two places where a panel
+ * change could happen and moves the deck at a fraction of the wheel's travel, so it is
+ * visibly resisting rather than ignoring you, and hands back to the snap only once you
+ * have pushed it past COMMIT. Stop short and it returns.
+ *
+ * Touch and keyboard are deliberately left alone. A drag and an arrow key are already
+ * deliberate acts; it is the flick that was too cheap.
+ */
+function useFirmDeck(
+  deckRef: React.RefObject<HTMLElement | null>,
+  readoutRef: React.RefObject<HTMLElement | null>,
+  enabled: boolean,
+  reducedMotion: boolean | null,
+) {
+  useEffect(() => {
+    const deck = deckRef.current;
+    if (!deck || !enabled) return;
+
+    let active = false;
+    let locked = false;
+    let from = 0;
+    let offset = 0;
+    let idle: ReturnType<typeof setTimeout> | null = null;
+    let unlock: ReturnType<typeof setTimeout> | null = null;
+
+    const settle = (to: number, committed: boolean) => {
+      active = false;
+      offset = 0;
+      locked = true;
+      if (idle) clearTimeout(idle);
+
+      // Snapping stays off until the animation lands, or re-enabling it mid-travel
+      // yanks the deck to the nearest panel and eats the animation.
+      deck.scrollTo({ top: to, behavior: reducedMotion ? 'auto' : 'smooth' });
+      const wait = reducedMotion ? 0 : committed ? 460 : 240;
+      if (unlock) clearTimeout(unlock);
+      unlock = setTimeout(() => {
+        deck.classList.remove('free');
+        locked = false;
+      }, wait);
+    };
+
+    const onWheel = (e: WheelEvent) => {
+      if (locked) {
+        e.preventDefault();
+        return;
+      }
+
+      const page = deck.clientHeight;
+      const onHero = deck.scrollTop < page / 2;
+      const down = e.deltaY > 0;
+
+      if (!active) {
+        // Claim the gesture only where a panel change is what the scroll would mean.
+        if (onHero && !down) return;
+        if (!onHero) {
+          if (down) return;
+          const readout = readoutRef.current;
+          if (!readout || readout.scrollTop > 0) return;
+        }
+        active = true;
+        from = onHero ? 0 : page;
+        offset = 0;
+        deck.classList.add('free');
+      }
+
+      e.preventDefault();
+      offset += wheelPixels(e, page) * DAMP;
+      offset = from === 0 ? Math.max(0, Math.min(page, offset)) : Math.max(-page, Math.min(0, offset));
+      deck.scrollTop = from + offset;
+
+      if (Math.abs(offset) >= page * COMMIT) {
+        settle(from === 0 ? page : 0, true);
+        return;
+      }
+
+      if (idle) clearTimeout(idle);
+      idle = setTimeout(() => {
+        if (active) settle(from, false);
+      }, IDLE_MS);
+    };
+
+    deck.addEventListener('wheel', onWheel, { passive: false });
+    return () => {
+      deck.removeEventListener('wheel', onWheel);
+      if (idle) clearTimeout(idle);
+      if (unlock) clearTimeout(unlock);
+      deck.classList.remove('free');
+    };
+  }, [deckRef, readoutRef, enabled, reducedMotion]);
 }
 
 /* --------------------------------------------------------------- connection */
