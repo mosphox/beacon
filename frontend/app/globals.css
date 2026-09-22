@@ -210,6 +210,10 @@ button.ip {
      The readout below carries the same address in a selectable row for anyone who wants
      to take it by hand. */
   user-select: none;
+  /* The press shrinks the whole assembly. Safe here, and only here: a transform on an
+     ANCESTOR of the clipped gradient composites fine, while one on .ip-text itself
+     destroys it. See the note above .ip-text. */
+  transition: transform 45ms cubic-bezier(0.3, 0, 0, 1);
 }
 
 .ip-stack {
@@ -245,8 +249,20 @@ button.ip:focus-visible .ip-bracket {
   transform: none;
 }
 
-/* On click the brackets snap hard against the address and spring straight back. Quick
-   on purpose — this is an acknowledgement, not an animation to watch. */
+/* On click the whole assembly gives under the press: the address shrinks a little while
+   the brackets bite further in. Scaling the button rather than the address keeps the two
+   in step at every address length — transform does not affect layout, so shrinking the
+   address alone would pull its edges away from brackets that are travelling a fixed
+   distance, and on a 39-character IPv6 the edges retreat faster than the brackets
+   advance and the gesture reads backwards. One transform on the parent has no such
+   width dependence.
+
+   Everything runs on the same 45ms and the same curve, so there is one movement, not
+   two. Quick on purpose — this is an acknowledgement, not an animation to watch. */
+button.ip.snap {
+  transform: scale(0.96);
+}
+
 button.ip.snap .ip-bracket {
   opacity: 0.95;
   transition:
@@ -263,11 +279,13 @@ button.ip.snap .ip-bracket.right {
 }
 
 /* One gradient across the whole address, clipped to the glyphs.
-   Nothing may give this element or its children a painting context of their own — not a
+   Nothing may give THIS element or its children a painting context of their own — not a
    per-glyph opacity, not a transform, not a mask. Any of those stops the clipped
    background compositing and the address renders as nothing, or as a fragment. It is
-   width-dependent, so it looks fine at one address length and breaks at another. The
-   entrance therefore lives on the hero wrapper and on the glow copy, never here. */
+   width-dependent, so it looks fine at one address length and breaks at another.
+   An ancestor is a different matter and is fine: button.ip is scaled on click and the
+   gradient survives it, checked at 7 and 39 characters. The entrance likewise lives on
+   the hero wrapper and on the glow copy, never here. */
 .ip-text {
   background-image: linear-gradient(100deg, #67e8f9, #a78bfa 45%, #f0abfc 80%);
   background-clip: text;

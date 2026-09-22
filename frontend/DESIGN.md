@@ -118,23 +118,36 @@ One orchestrated moment: the hero fades up once on load, and the glow behind the
 pulls from a wide blur into focus. Nothing else animates on scroll, and the address's
 gradient no longer drifts — the arrival is the moment.
 
-**The address itself must never be animated directly.** It carries a
+**The address element itself must never be animated directly.** It carries a
 `background-clip: text` gradient, and anything that gives it or its children a painting
 context of their own — a per-glyph opacity, a transform, a mask — stops the clipped
 background compositing, and the address renders as a fragment or as nothing at all. The
 failure is width-dependent, so it will look correct at one address length and break at
-another. Animate the hero wrapper or the blurred glow copy instead; both are safe.
+another.
+
+An **ancestor** is a different matter and is safe: the button around the address is
+scaled on click and the gradient composites through it, verified at 7 and 39 characters
+and at 375px. So the rule is precise rather than blanket — move a wrapper, the blurred
+glow copy, or the button, never `.ip-text`.
 
 Hover is answered by brackets closing in around the address, the way a shell prompt marks
 a value — not by the address moving or growing. They hold their space at rest, so
 revealing them shifts nothing, and the address stays exactly where the eye left it. The
 glow handles the entrance and then stops participating.
 
-A click snaps those same brackets shut against the address and lets them spring back:
-45ms in, held 75ms, then the hover state resumes. It is deliberately faster than the
-hover reveal — an acknowledgement of a press is not something anyone should watch finish.
-It fires on the click rather than on the clipboard promise, so the feedback tracks the
-press and not the round trip.
+A click is answered by the whole assembly giving under the press: the button scales to
+0.96 while those same brackets bite further in, 45ms in, held 75ms, then the hover state
+resumes. Everything runs on one duration and one curve, so it reads as a single movement
+rather than two things happening at once. It is deliberately faster than the hover reveal
+— an acknowledgement of a press is not something anyone should watch finish — and it
+fires on the click rather than on the clipboard promise, so the feedback tracks the press
+and not the round trip.
+
+The scale goes on the button, not on the address, for a second reason beyond the gradient:
+`transform` does not affect layout, so shrinking the address alone would pull its edges
+away from brackets travelling a fixed distance. On a long address the edges retreat faster
+than the brackets advance and the gesture reads backwards. Scaling the common parent has
+no such width dependence.
 
 Durations 120ms micro, 200ms standard. Animate `opacity` and `transform` only.
 `prefers-reduced-motion` removes the gradient drift and the fade, and is already honoured
