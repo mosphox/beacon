@@ -118,14 +118,22 @@ screens with no landmark is a real cost, but a bar across every heading is a wor
 
 ## Shape
 
-Radius 4px on everything that sits *in* the page — interactive surfaces, the fingerprint
-panels. No radius on rows or sections, because they are not objects; they are ruled lines
-in a table.
+Radius tracks the size of the thing it is on, and there are exactly three values.
 
-The copy toast is the one exception and is fully rounded. That is the point of the
-exception: it is the only element that floats *above* the page rather than sitting in it,
-and the shape says so before the motion does. Nothing else may take that radius, or the
-distinction stops meaning anything.
+| Radius | On |
+| --- | --- |
+| 4px | chips, badges, buttons, focus rings — anything a few characters wide |
+| 12px | the fingerprint panels, the only large bordered surfaces on the page |
+| full | the copy toast, and nothing else |
+
+4px on a panel the width of the measure reads as a square box with its corners filed
+off; 12px reads as a panel. No radius at all on rows or sections, because they are not
+objects — they are ruled lines in a table.
+
+The toast is fully rounded, and that is the point of the top of the scale: it is the only
+element that floats *above* the page rather than sitting in it, and the shape says so
+before the motion does. Nothing else may take that radius, or the distinction stops
+meaning anything.
 
 Hairlines over shadows. The only shadow in the system is under the toast, which genuinely
 floats; everything else is bounded by a `--rule` line instead.

@@ -697,11 +697,14 @@ button.ip {
 /* ---------------------------------------------------------- fingerprint */
 
 /* The one place boldness is spent: a JA4 string is structured, so the structure shows. */
+/* 12px, not the 4px the small surfaces use. Radius tracks the size of the thing it is
+   on: 4px is a corner on a chip, and the same 4px on a panel this large reads as a
+   square box with the corners filed off. */
 .fp {
   margin-top: 16px;
   padding: 16px;
   border: 1px solid var(--rule-strong);
-  border-radius: 4px;
+  border-radius: 12px;
   background: rgb(0 0 0 / 0.2);
 }
 
