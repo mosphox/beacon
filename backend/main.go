@@ -208,6 +208,17 @@ func buildRegistry(cfg config.Config) (*geoip.Registry, error) {
 	if cfg.DBIPEnabled {
 		providers = append(providers, geoip.NewDBIP(cfg.DataDir, client))
 	}
+	// Coarser sources after the city-level ones, so the top level is filled
+	// from the most specific answer first.
+	if cfg.IPLocateEnabled {
+		providers = append(providers, geoip.NewIPLocate(cfg.DataDir, client))
+	}
+	if cfg.IPFireEnabled {
+		providers = append(providers, geoip.NewIPFire(cfg.DataDir, client))
+	}
+	if cfg.IPLocationDBEnabled {
+		providers = append(providers, geoip.NewIPLocationDB(cfg.DataDir, client))
+	}
 
 	return geoip.NewRegistry(cfg.DataDir, time.Duration(cfg.UpdatePeriodHours)*time.Hour, providers...)
 }

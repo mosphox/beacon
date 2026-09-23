@@ -49,3 +49,42 @@ func TestTrustProxyHeadersIsOptIn(t *testing.T) {
 		t.Error("TrustProxyHeaders = false with TRUST_PROXY_HEADERS=true")
 	}
 }
+
+// Every source that needs no account is on unless switched off.
+func TestNoAccountSourcesAreOnByDefault(t *testing.T) {
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if !cfg.DBIPEnabled || !cfg.IPLocateEnabled || !cfg.IPFireEnabled || !cfg.IPLocationDBEnabled {
+		t.Errorf("defaults: DB-IP %v, IPLocate %v, IPFire %v, ip-location-db %v; want all on",
+			cfg.DBIPEnabled, cfg.IPLocateEnabled, cfg.IPFireEnabled, cfg.IPLocationDBEnabled)
+	}
+}
+
+func TestSwitchingEverySourceOffIsRefused(t *testing.T) {
+	for _, env := range []string{"DBIP_ENABLED", "IPLOCATE_ENABLED", "IPFIRE_ENABLED", "IP_LOCATION_DB_ENABLED"} {
+		t.Setenv(env, "false")
+	}
+	if _, err := Load(); err == nil {
+		t.Fatal("Load succeeded with no GeoIP source at all")
+	}
+
+	// Any one source is enough.
+	t.Setenv("IPFIRE_ENABLED", "true")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load with only IPFire on: %v", err)
+	}
+	if cfg.DBIPEnabled || cfg.IPLocateEnabled || !cfg.IPFireEnabled || cfg.IPLocationDBEnabled {
+		t.Errorf("got DB-IP %v, IPLocate %v, IPFire %v, ip-location-db %v",
+			cfg.DBIPEnabled, cfg.IPLocateEnabled, cfg.IPFireEnabled, cfg.IPLocationDBEnabled)
+	}
+}
+
+func TestSourceSwitchesRejectNonsense(t *testing.T) {
+	t.Setenv("IPLOCATE_ENABLED", "sometimes")
+	if _, err := Load(); err == nil {
+		t.Error("Load accepted IPLOCATE_ENABLED=sometimes")
+	}
+}

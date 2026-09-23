@@ -44,8 +44,36 @@ export type Flags = {
   satellite_provider: boolean;
 };
 
+/**
+ * A field a source can fill at all, named by the response key it governs: `region` covers
+ * the region and subdivisions, `coordinates` latitude and longitude, `timezone` the local
+ * time derived from it.
+ *
+ * A null — or a false flag — from a source that provides the field is that source's
+ * answer. From one that does not, it says nothing either way: DB-IP Lite has no postal
+ * code for any address, and a country-only database has no city to give.
+ */
+export type Provides =
+  | 'city'
+  | 'region'
+  | 'postal_code'
+  | 'coordinates'
+  | 'accuracy_radius_km'
+  | 'timezone'
+  | 'metro_code'
+  | 'country'
+  | 'continent'
+  | 'in_european_union'
+  | 'registered_country'
+  | 'asn'
+  | 'asn_org'
+  | 'anycast'
+  | 'anonymous_proxy'
+  | 'satellite_provider';
+
 export type Source = {
   source: string;
+  provides: Provides[];
   location: Location;
   network: Network;
   flags: Flags;
@@ -117,6 +145,13 @@ export type BeaconResponse = {
   network: Network;
   flags: Flags;
   sources_agree: boolean;
+  /**
+   * The two halves of `sources_agree`. Sources routinely agree on where an address is
+   * while naming different autonomous systems for it — routing data against registry
+   * data — so the Location section must not report the network half as its own.
+   */
+  locations_agree: boolean;
+  networks_agree: boolean;
   sources: Source[];
   /** Null unless beacon terminated this connection's TLS itself. */
   tls: TlsBlock | null;

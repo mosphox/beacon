@@ -7,7 +7,7 @@ import { useEffect, useRef, useState } from 'react';
 import { AkamaiBreakdown, Ja4Breakdown } from './components/fingerprint';
 import type { CompareRow } from './components/rows';
 import { Chips, Compare, Flag, Group, Row, Rows, Section } from './components/rows';
-import type { BeaconResponse, Location, Network } from '@/lib/types';
+import type { BeaconResponse, Location, Network, Provides, Source } from '@/lib/types';
 import { PSEUDO_HEADER_NAMES, SETTING_NAMES } from '@/lib/types';
 
 type Status = 'loading' | 'ready' | 'error';
@@ -291,8 +291,11 @@ export default function BeaconView() {
  *
  * AGPL-3.0 section 13 requires a network service to offer its source to the
  * users interacting with it, which a link in a repository cannot do. MaxMind's
- * GeoLite2 EULA requires its notice verbatim, and DB-IP Lite is CC-BY 4.0,
- * which requires attribution on the output and not only in the README.
+ * GeoLite2 EULA requires its notice verbatim. DB-IP Lite is CC BY 4.0 and
+ * IPLocate's and IPFire's data CC BY-SA 4.0, all of which require attribution
+ * on the output and not only in the README; IPLocate asks for a link in so many
+ * words. ip-location-db is public domain and needs none, but a source this page
+ * shows by name is a source it credits.
  */
 function Colophon() {
   return (
@@ -307,7 +310,12 @@ function Colophon() {
         This product includes GeoLite2 data created by MaxMind, available from{' '}
         <a href="https://www.maxmind.com">maxmind.com</a>. IP geolocation by{' '}
         <a href="https://db-ip.com">DB-IP</a>, licensed under{' '}
-        <a href="https://creativecommons.org/licenses/by/4.0/">CC&nbsp;BY&nbsp;4.0</a>.
+        <a href="https://creativecommons.org/licenses/by/4.0/">CC&nbsp;BY&nbsp;4.0</a>. IP address
+        data powered by <a href="https://www.iplocate.io">IPLocate.io</a>, and location data from
+        the <a href="https://location.ipfire.org">IPFire&nbsp;Location</a> database, both licensed
+        under <a href="https://creativecommons.org/licenses/by-sa/4.0/">CC&nbsp;BY-SA&nbsp;4.0</a>.
+        Country data from <a href="https://github.com/sapics/ip-location-db">ip-location-db</a>,
+        in the public domain.
       </p>
     </footer>
   );
@@ -340,13 +348,21 @@ function HeroPlace({ data }: { data: BeaconResponse }) {
 
 /* --------------------------------------------------------------- connection */
 
+const FLAGS: { key: 'anycast' | 'anonymous_proxy' | 'satellite_provider'; label: string }[] = [
+  { key: 'anycast', label: 'anycast' },
+  { key: 'anonymous_proxy', label: 'anonymous proxy' },
+  { key: 'satellite_provider', label: 'satellite' },
+];
+
 function Connection({ data }: { data: BeaconResponse }) {
-  const { flags } = data;
-  const marks = [
-    flags.anycast ? 'anycast' : null,
-    flags.anonymous_proxy ? 'anonymous proxy' : null,
-    flags.satellite_provider ? 'satellite' : null,
-  ].filter((m): m is string => m !== null);
+  const { flags, sources } = data;
+  const marks = FLAGS.filter((f) => flags[f.key]).map((f) => f.label);
+  // A mark is one source's assertion, so it carries that source's name. And "nothing
+  // unusual" is only an answer when some source here looks for these at all: DB-IP Lite
+  // never does, and its false is not a clean bill.
+  const markedBy = sources.filter((s) => FLAGS.some((f) => s.flags[f.key])).map((s) => s.source);
+  const checked =
+    sources.length === 0 || sources.some((s) => FLAGS.some((f) => s.provides.includes(f.key)));
 
   return (
     <Section title="Connection">
@@ -362,7 +378,7 @@ function Connection({ data }: { data: BeaconResponse }) {
             label="Marked as"
             /* Stated rather than hidden. "Nothing unusual" is the answer most addresses
                get, and it is worth saying out loud. */
-            absent="nothing unusual"
+            absent={checked ? 'nothing unusual' : 'no source here checks this'}
             value={
               marks.length > 0 ? (
                 <>
@@ -370,7 +386,10 @@ function Connection({ data }: { data: BeaconResponse }) {
                     <Flag key={m} on>
                       {m}
                     </Flag>
-                  ))}
+                  ))}{' '}
+                  <span className="marked-by">
+                    per <span translate="no">{listOf(markedBy)}</span>
+                  </span>
                 </>
               ) : null
             }
@@ -393,29 +412,58 @@ function Connection({ data }: { data: BeaconResponse }) {
  *
  * Each field is a function of a Location so the same list drives both the single-source
  * table and the side-by-side comparison. One definition, two renderings.
+ *
+ * `needs` is what a source must provide for the field to apply to it at all. Sources
+ * differ in precision — some place an address in a city, some only in a country — and a
+ * field outside a source's data is left out of that source's comparison rather than
+ * counted as a disagreement.
  */
-type Field<T> = { label: string; of: (v: T) => string | null };
+type Field<T> = { label: string; of: (v: T) => string | null; needs?: Provides };
 
 const PLACE_FIELDS: Field<Location>[] = [
   { label: 'Place', of: (l) => placeOf(l) || null },
-  { label: 'Postal code', of: (l) => l.postal_code },
-  { label: 'Coordinates', of: (l) => coordsOf(l) },
+  { label: 'Postal code', needs: 'postal_code', of: (l) => l.postal_code },
+  { label: 'Coordinates', needs: 'coordinates', of: (l) => coordsOf(l) },
   {
     label: 'Accuracy',
+    needs: 'accuracy_radius_km',
     of: (l) => (l.accuracy_radius_km === null ? null : `±${l.accuracy_radius_km}\u00A0km`),
   },
-  { label: 'Time zone', of: (l) => l.timezone },
-  { label: 'Local time', of: (l) => (clockOf(l) ? `${clockOf(l)} there` : null) },
+  { label: 'Time zone', needs: 'timezone', of: (l) => l.timezone },
+  {
+    label: 'Local time',
+    needs: 'timezone',
+    of: (l) => (clockOf(l) ? `${clockOf(l)} there` : null),
+  },
+];
+
+/** A source that can say anything finer than the country belongs in the place table. */
+const PLACE_KEYS: Provides[] = [
+  'city',
+  'region',
+  'postal_code',
+  'coordinates',
+  'accuracy_radius_km',
+  'timezone',
 ];
 
 const ADMIN_FIELDS: Field<Location>[] = [
-  { label: 'Continent', of: (l) => l.continent },
+  {
+    // The name alone: it is one name per code by now (see withCountryNames), and five
+    // columns of "United States (US)" wrap to three lines each.
+    label: 'Country',
+    needs: 'country',
+    of: (l) => l.country ?? l.country_code,
+  },
+  { label: 'Continent', needs: 'continent', of: (l) => l.continent },
   {
     label: 'European Union',
+    needs: 'in_european_union',
     of: (l) => (l.country_code ? (l.in_european_union ? 'yes' : 'no') : null),
   },
   {
     label: 'Registered to',
+    needs: 'registered_country',
     of: (l) =>
       l.registered_country
         ? `${l.registered_country}${
@@ -425,16 +473,81 @@ const ADMIN_FIELDS: Field<Location>[] = [
   },
 ];
 
-function compareRows<T>(fields: Field<T>[], subjects: T[]): CompareRow[] {
-  return fields.map((f) => ({ label: f.label, values: subjects.map(f.of) }));
+const applies = (needs: Provides | undefined, provides: Provides[]) =>
+  needs === undefined || provides.includes(needs);
+
+/** One column per source. A field no source provides is not drawn: a row of dashes says nothing. */
+function compareRows<T>(fields: Field<T>[], subjects: T[], provides: Provides[][]): CompareRow[] {
+  return fields.flatMap((f) => {
+    const covered = provides.map((p) => applies(f.needs, p));
+    return covered.some(Boolean) ? [{ label: f.label, values: subjects.map(f.of), covered }] : [];
+  });
 }
 
-function plainRows<T>(fields: Field<T>[], subject: T) {
-  return fields.map((f) => <Row key={f.label} label={f.label} value={f.of(subject)} />);
+function plainRows<T>(fields: Field<T>[], subject: T, provides: Provides[]) {
+  return fields
+    .filter((f) => applies(f.needs, provides))
+    .map((f) => <Row key={f.label} label={f.label} value={f.of(subject)} />);
+}
+
+const LIST = new Intl.ListFormat('en', { style: 'long', type: 'conjunction' });
+
+function listOf(names: string[]): string {
+  return LIST.format(names);
+}
+
+const REGIONS = new Intl.DisplayNames(['en'], { type: 'region' });
+
+/**
+ * Every location with its country named the same way for the same code: the first
+ * source's spelling, or the browser's where no source names it.
+ *
+ * Databases spell countries differently — IPFire says "United States of America" where
+ * DB-IP says "United States" — and ip-location-db gives only the code. Compared as text,
+ * a spelling would read as a disagreement about where you are. The response keeps each
+ * source's own spelling; this is only how they are set side by side.
+ */
+function withCountryNames(sources: Source[]): Location[] {
+  const names = new Map<string, string>();
+  for (const { location: l } of sources) {
+    if (l.country_code && l.country && !names.has(l.country_code)) {
+      names.set(l.country_code, l.country);
+    }
+  }
+  return sources.map(({ location: l }) => {
+    if (!l.country_code) return l;
+    const country = names.get(l.country_code) ?? regionName(l.country_code);
+    return country === l.country ? l : { ...l, country };
+  });
+}
+
+function regionName(code: string): string | null {
+  try {
+    return REGIONS.of(code) ?? null;
+  } catch {
+    // Not a region code the browser knows; the code stands on its own.
+    return null;
+  }
+}
+
+type Column = { name: string; location: Location; provides: Provides[] };
+
+/** The note under the place table, naming the sources that are not in it. */
+function placeNote(fine: Column[], coarse: Column[]): string | undefined {
+  if (fine.length === 0) {
+    return 'None of these sources places this address more precisely than its country.';
+  }
+  if (coarse.length === 0) return undefined;
+  const who = listOf(coarse.map((c) => c.name));
+  const rest =
+    coarse.length === 1
+      ? `${who} reports only the country and appears in the next table.`
+      : `${who} report only the country and appear in the next table.`;
+  return fine.length === 1 ? `From ${fine[0].name}. ${rest}` : rest;
 }
 
 function LocationSection({ data }: { data: BeaconResponse }) {
-  const { location, sources, sources_agree: agree } = data;
+  const { sources, locations_agree: agree } = data;
 
   if (sources.length === 0) {
     return (
@@ -447,34 +560,56 @@ function LocationSection({ data }: { data: BeaconResponse }) {
     );
   }
 
-  const names = sources.map((s) => s.source);
-  const places = sources.map((s) => s.location);
-  const multiple = sources.length > 1;
+  const places = withCountryNames(sources);
+  const columns: Column[] = sources.map((s, i) => ({
+    name: s.source,
+    location: places[i],
+    provides: s.provides,
+  }));
+  // Sources that can place an address below its country get the place table; the rest
+  // know the country and nothing finer, and are compared on that, in the second table.
+  const fine = columns.filter((c) => PLACE_KEYS.some((k) => c.provides.includes(k)));
+  const coarse = columns.filter((c) => !fine.includes(c));
+  const multiple = columns.length > 1;
 
   return (
     <Section
       title="Location"
-      note={multiple ? `${sources.length} sources ${agree ? 'agree' : 'disagree'}` : names[0]}
+      note={multiple ? `${columns.length} sources ${agree ? 'agree' : 'disagree'}` : columns[0].name}
       noteTone={multiple ? (agree ? 'agree' : 'differ') : undefined}
       intro={
         multiple && !agree
-          ? 'The databases place this address differently. Both answers stand as reported; neither is corrected against the other, and the fields they differ on are marked.'
+          ? 'The databases place this address differently. Each answer stands as reported; none is corrected against another, and the fields they differ on are marked.'
           : undefined
       }
     >
-      <Group caption="Where it puts you">
-        {multiple ? (
-          <Compare columns={names} rows={compareRows(PLACE_FIELDS, places)} />
-        ) : (
-          <Rows>{plainRows(PLACE_FIELDS, location)}</Rows>
-        )}
+      <Group caption="Where it puts you" note={placeNote(fine, coarse)}>
+        {fine.length > 1 ? (
+          <Compare
+            columns={fine.map((c) => c.name)}
+            rows={compareRows(
+              PLACE_FIELDS,
+              fine.map((c) => c.location),
+              fine.map((c) => c.provides),
+            )}
+          />
+        ) : fine.length === 1 ? (
+          <Rows>{plainRows(PLACE_FIELDS, fine[0].location, fine[0].provides)}</Rows>
+        ) : null}
       </Group>
 
       <Group caption="Country and registry">
         {multiple ? (
-          <Compare columns={names} rows={compareRows(ADMIN_FIELDS, places)} />
+          <Compare
+            columns={columns.map((c) => c.name)}
+            rows={compareRows(
+              ADMIN_FIELDS,
+              columns.map((c) => c.location),
+              columns.map((c) => c.provides),
+            )}
+          />
         ) : (
-          <Rows>{plainRows(ADMIN_FIELDS, location)}</Rows>
+          <Rows>{plainRows(ADMIN_FIELDS, columns[0].location, columns[0].provides)}</Rows>
         )}
       </Group>
     </Section>
@@ -484,12 +619,17 @@ function LocationSection({ data }: { data: BeaconResponse }) {
 /* ------------------------------------------------------------------ network */
 
 const NETWORK_FIELDS: Field<Network>[] = [
-  { label: 'Autonomous system', of: (n) => (n.asn === null ? null : `AS${n.asn}`) },
-  { label: 'Operator', of: (n) => n.asn_org },
+  {
+    label: 'Autonomous system',
+    needs: 'asn',
+    of: (n) => (n.asn === null ? null : `AS${n.asn}`),
+  },
+  { label: 'Operator', needs: 'asn_org', of: (n) => n.asn_org },
 ];
 
 function NetworkSection({ data }: { data: BeaconResponse }) {
-  const { network, sources } = data;
+  // A source with no network data at all — a country-only database — is not a column here.
+  const sources = data.sources.filter((s) => s.provides.includes('asn'));
 
   if (sources.length === 0) {
     return (
@@ -521,10 +661,11 @@ function NetworkSection({ data }: { data: BeaconResponse }) {
             rows={compareRows(
               NETWORK_FIELDS,
               sources.map((s) => s.network),
+              sources.map((s) => s.provides),
             )}
           />
         ) : (
-          <Rows>{plainRows(NETWORK_FIELDS, network)}</Rows>
+          <Rows>{plainRows(NETWORK_FIELDS, sources[0].network, sources[0].provides)}</Rows>
         )}
       </Group>
     </Section>

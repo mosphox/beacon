@@ -45,6 +45,8 @@ func NewMaxMind(accountID, licenseKey, dataDir string, client *http.Client) *Max
 
 func (m *MaxMind) Name() string { return "MaxMind" }
 
+func (m *MaxMind) Provides() Fields { return AllFields }
+
 func (m *MaxMind) paths() (country, city, asn string) {
 	return filepath.Join(m.dataDir, mmCountryEdition+".mmdb"),
 		filepath.Join(m.dataDir, mmCityEdition+".mmdb"),
@@ -149,7 +151,7 @@ func (m *MaxMind) fetchArchive(rawURL string, hasher io.Writer) ([]pendingFile, 
 		}
 		dest := filepath.Join(m.dataDir, filepath.Base(hdr.Name))
 		tmp := dest + ".tmp"
-		n, err := writeMMDBN(tmp, tr, limit)
+		n, err := writeDBN(tmp, tr, limit)
 		if err != nil {
 			cleanupPending(pending)
 			return nil, err

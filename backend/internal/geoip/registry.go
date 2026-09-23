@@ -2,6 +2,7 @@ package geoip
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"net"
@@ -23,7 +24,12 @@ const (
 // directory and its own download protocol.
 type Provider interface {
 	Name() string
+	// Provides is what the source can fill for any address, as opposed to
+	// what it happens to know about one.
+	Provides() Fields
 	FilesPresent() bool
+	// Download fetches and installs the latest data, or returns errNotModified
+	// when the installed data is already the latest.
 	Download() error
 	Open() error
 	Close()
@@ -134,7 +140,7 @@ func (r *Registry) LookupAll(ipStr string) []Answer {
 		if !rec.HasData {
 			continue
 		}
-		answers = append(answers, Answer{Source: p.Name(), Record: rec})
+		answers = append(answers, Answer{Source: p.Name(), Record: rec, Provides: p.Provides()})
 	}
 	return answers
 }
@@ -148,7 +154,8 @@ func (r *Registry) Close() {
 	r.providers = nil
 }
 
-// stampPath records when a provider last installed fresh data.
+// stampPath records when a provider last installed fresh data, or last
+// confirmed that what it has installed is still the latest.
 func (r *Registry) stampPath(p Provider) string {
 	name := strings.ToLower(strings.ReplaceAll(p.Name(), "-", ""))
 	return filepath.Join(r.dataDir, "."+name+".timestamp")
@@ -213,6 +220,13 @@ func (r *Registry) RefreshLoop(ctx context.Context) {
 			}
 			log.Printf("%s: refreshing databases...", p.Name())
 			if err := p.Download(); err != nil {
+				if errors.Is(err, errNotModified) {
+					// Stamped like a download: the question the stamp answers is
+					// "when did this source last check out", and it just did.
+					r.stamp(p)
+					log.Printf("%s: already current", p.Name())
+					continue
+				}
 				log.Printf("%s: refresh failed: %v", p.Name(), err)
 				continue
 			}

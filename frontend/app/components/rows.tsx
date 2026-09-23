@@ -85,6 +85,12 @@ export type CompareRow = {
   label: string;
   /** One entry per column, in the same order as `columns`. */
   values: (string | null)[];
+  /**
+   * Whether each column's source provides this field at all. A column that does not is
+   * outside the comparison for this row: it shows a dash and cannot mark the row as a
+   * disagreement. Omitted means every column provides it.
+   */
+  covered?: boolean[];
 };
 
 /**
@@ -100,6 +106,12 @@ export type CompareRow = {
  *
  * Below 640px the same markup restyles into stacked blocks, each value prefixed with its
  * source, because three columns of place names do not fit a phone.
+ *
+ * Only sources that provide a field are compared on it. A source that never carries a
+ * field — DB-IP Lite has no postal codes, a country-only database no coordinates — has
+ * not disagreed by having nothing there, and letting its empty cell mark the row would
+ * put a disagreement on nearly every row once sources of different precision sit side
+ * by side.
  */
 export function Compare({
   columns,
@@ -122,7 +134,7 @@ export function Compare({
             <span className="sr-only">Field</span>
           </th>
           {columns.map((c) => (
-            <th scope="col" role="columnheader" key={c}>
+            <th scope="col" role="columnheader" key={c} translate="no">
               {c}
             </th>
           ))}
@@ -130,22 +142,31 @@ export function Compare({
       </thead>
       <tbody>
         {rows.map((r) => {
-          const differs = r.values.some((v) => v !== r.values[0]);
+          const isCovered = (i: number) => r.covered?.[i] ?? true;
+          const compared = r.values.filter((_, i) => isCovered(i));
+          const differs = compared.some((v) => v !== compared[0]);
           return (
             <tr role="row" key={r.label} className={differs ? 'differs' : undefined}>
               <th scope="row" role="rowheader">
                 {r.label}
               </th>
-              {r.values.map((v, i) => (
-                <td
-                  role="cell"
-                  key={columns[i]}
-                  data-source={columns[i]}
-                  className={v === null ? 'absent' : undefined}
-                >
-                  {v ?? absent}
-                </td>
-              ))}
+              {r.values.map((v, i) =>
+                isCovered(i) ? (
+                  <td
+                    role="cell"
+                    key={columns[i]}
+                    data-source={columns[i]}
+                    className={v === null ? 'absent' : undefined}
+                  >
+                    {v ?? absent}
+                  </td>
+                ) : (
+                  <td role="cell" key={columns[i]} data-source={columns[i]} className="uncovered">
+                    <span aria-hidden="true">—</span>
+                    <span className="sr-only">not in this source’s data</span>
+                  </td>
+                ),
+              )}
             </tr>
           );
         })}

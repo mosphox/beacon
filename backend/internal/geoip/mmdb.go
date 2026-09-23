@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"net"
 	"os"
-	"sync"
 
 	geoip2 "github.com/oschwald/geoip2-golang"
 )
@@ -141,42 +140,6 @@ func fillFromCity(rec *Record, r *geoip2.City) {
 
 func cityHasData(r *geoip2.City) bool {
 	return r.Country.IsoCode != "" || len(r.Country.Names) > 0 || len(r.City.Names) > 0
-}
-
-// swappable holds a set of readers that can be replaced while lookups are in
-// flight, so a refresh never makes the service stop answering.
-type swappable struct {
-	mu  sync.RWMutex
-	set *mmdbSet
-}
-
-// lookup runs under the read lock. The readers are memory-mapped files, so the
-// whole read must happen inside the lock: handing the pointer out and releasing
-// first would let a refresh close the database mid-lookup.
-func (s *swappable) lookup(ip net.IP) Record {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	if s.set == nil {
-		return Record{}
-	}
-	return s.set.lookup(ip)
-}
-
-// swap installs a new set and closes the old one while still holding the write
-// lock, which guarantees no reader is inside the set being closed.
-func (s *swappable) swap(next *mmdbSet) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	old := s.set
-	s.set = next
-	old.close()
-}
-
-func (s *swappable) closeAll() {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.set.close()
-	s.set = nil
 }
 
 func filesPresent(paths ...string) bool {

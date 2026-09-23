@@ -539,3 +539,144 @@ func TestPointFormatsAreNumbers(t *testing.T) {
 		t.Errorf("point_formats = %#v, want [0 1]", list)
 	}
 }
+
+// ------------------------------------------------ sources of mixed precision
+
+// Country-level sources agreeing with a city-level one add nothing to the line:
+// they fold into it, whatever they call the country — IPFire's "United States
+// of America", or no name at all from a source that reports only codes.
+func TestPlainTextCountryOnlySourcesFoldIntoTheCity(t *testing.T) {
+	answers := []geoip.Answer{
+		{Source: "DB-IP", Record: full()},
+		{Source: "IPLocate", Record: geoip.Record{CountryCode: "US", Country: "United States", HasData: true}},
+		{Source: "IPFire", Record: geoip.Record{
+			CountryCode: "US", Country: "United States of America",
+			ASN: 15169, ASNOrg: "Google LLC", IsAnycast: true, HasData: true,
+		}},
+		{Source: "ip-location-db", Record: geoip.Record{CountryCode: "US", HasData: true}},
+	}
+	resp := New("8.8.8.8", "", answers)
+	want := "8.8.8.8 Mountain View [US] United States AS15169 (GOOGLE)\n"
+	if got := resp.PlainText(); got != want {
+		t.Errorf("PlainText()\n got %q\nwant %q", got, want)
+	}
+	if !resp.Agree() {
+		t.Error("Agree() = false for sources that differ only in precision and spelling")
+	}
+}
+
+// A dissent from a source that names no country shows the code; if another
+// source names that country, the name is borrowed so both read the same.
+func TestPlainTextCodeOnlyDissent(t *testing.T) {
+	codeOnly := geoip.Answer{Source: "ip-location-db", Record: geoip.Record{CountryCode: "RU", HasData: true}}
+
+	got := New("8.8.8.8", "", []geoip.Answer{{Source: "DB-IP", Record: full()}, codeOnly}).PlainText()
+	want := "8.8.8.8 Mountain View [US] United States [DB-IP] / [RU] [ip-location-db] AS15169 (GOOGLE)\n"
+	if got != want {
+		t.Errorf("PlainText()\n got %q\nwant %q", got, want)
+	}
+
+	named := geoip.Answer{Source: "IPFire", Record: geoip.Record{
+		CountryCode: "RU", Country: "Russian Federation", HasData: true,
+	}}
+	got = New("8.8.8.8", "", []geoip.Answer{{Source: "DB-IP", Record: full()}, named, codeOnly}).PlainText()
+	want = "8.8.8.8 Mountain View [US] United States [DB-IP] / [RU] Russian Federation [IPFire, ip-location-db] AS15169 (GOOGLE)\n"
+	if got != want {
+		t.Errorf("PlainText()\n got %q\nwant %q", got, want)
+	}
+}
+
+// The first source to name a country decides the top-level country, and the
+// rest of the place comes only from sources that agree with it. Filling the
+// city from a source that put the address elsewhere would describe a place no
+// source reported: Mountain View, Canada.
+func TestPrimaryKeepsThePlaceInOneCountry(t *testing.T) {
+	canada := geoip.Record{Country: "Canada", CountryCode: "CA", Continent: "North America", ContinentCode: "NA", HasData: true}
+	answers := []geoip.Answer{
+		{Source: "MaxMind", Record: canada},
+		{Source: "DB-IP", Record: full()},
+	}
+
+	m := decode(t, New("8.8.8.8", "", answers), SchemaVersion)
+	loc := m["location"].(map[string]any)
+	if loc["country_code"] != "CA" || loc["city"] != nil || loc["latitude"] != nil || loc["postal_code"] != nil {
+		t.Errorf("top level mixed two countries: %v", loc)
+	}
+
+	v1 := decode(t, New("8.8.8.8", "", answers), 1)
+	if v1["country"] != "Canada" || v1["city"] != nil {
+		t.Errorf("v1 = %v, want Canada with no city", v1)
+	}
+}
+
+// An operator name is only ever shown beside the number it was given for.
+func TestPrimaryPairsTheOperatorWithItsNumber(t *testing.T) {
+	answers := []geoip.Answer{
+		{Source: "A", Record: geoip.Record{ASN: 64500, HasData: true}},
+		{Source: "B", Record: geoip.Record{ASN: 64501, ASNOrg: "Someone Else", HasData: true}},
+		{Source: "C", Record: geoip.Record{ASN: 64500, ASNOrg: "The Right One", HasData: true}},
+	}
+	nw := decode(t, New("192.0.2.1", "", answers), SchemaVersion)["network"].(map[string]any)
+	if nw["asn"] != float64(64500) || nw["asn_org"] != "The Right One" {
+		t.Errorf("network = %v, want AS64500 with its own operator", nw)
+	}
+}
+
+func TestV2SourcesSayWhatTheyProvide(t *testing.T) {
+	answers := []geoip.Answer{
+		{Source: "IPFire", Record: geoip.Record{CountryCode: "US", HasData: true},
+			Provides: geoip.FieldCountry | geoip.FieldASN | geoip.FieldAnycast},
+		{Source: "Unknown", Record: geoip.Record{CountryCode: "US", HasData: true}},
+	}
+	srcs := decode(t, New("8.8.8.8", "", answers), SchemaVersion)["sources"].([]any)
+
+	got := srcs[0].(map[string]any)["provides"].([]any)
+	want := []any{"country", "asn", "anycast"}
+	if len(got) != len(want) {
+		t.Fatalf("provides = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("provides = %v, want %v in schema order", got, want)
+		}
+	}
+	// None declared is an empty list, never null.
+	if p, ok := srcs[1].(map[string]any)["provides"].([]any); !ok || len(p) != 0 {
+		t.Errorf("provides for a source declaring nothing = %v, want []", srcs[1].(map[string]any)["provides"])
+	}
+}
+
+// Every field the geoip package defines has exactly one name in the schema.
+func TestFieldNamesCoverEveryField(t *testing.T) {
+	seenName := map[string]bool{}
+	var covered geoip.Fields
+	for _, fn := range fieldNames {
+		if covered&fn.field != 0 || seenName[fn.name] {
+			t.Errorf("%q (%b) is named twice", fn.name, fn.field)
+		}
+		covered |= fn.field
+		seenName[fn.name] = true
+	}
+	if covered != geoip.AllFields {
+		t.Errorf("named fields %b, want every field %b", covered, geoip.AllFields)
+	}
+}
+
+// Routing-derived sources often put an address in a different autonomous system
+// than registry-derived ones while agreeing on where it is. The halves are
+// reported apart so a page does not call that a disagreement about location.
+func TestAgreementIsReportedPerHalf(t *testing.T) {
+	yandex := full()
+	yandex.ASN, yandex.ASNOrg = 13238, "YANDEX LLC"
+	answers := []geoip.Answer{
+		{Source: "DB-IP", Record: yandex},
+		{Source: "IPFire", Record: geoip.Record{
+			CountryCode: "US", Country: "United States", ASN: 208398, HasData: true,
+		}},
+	}
+	m := decode(t, New("77.88.8.8", "", answers), SchemaVersion)
+	if m["locations_agree"] != true || m["networks_agree"] != false || m["sources_agree"] != false {
+		t.Errorf("locations_agree %v, networks_agree %v, sources_agree %v; want true, false, false",
+			m["locations_agree"], m["networks_agree"], m["sources_agree"])
+	}
+}

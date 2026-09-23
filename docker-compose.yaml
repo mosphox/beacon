@@ -54,8 +54,11 @@ services:
       - TLS_LISTEN_ADDR=${TLS_LISTEN_ADDR:-:8443}
       - FRONTEND_URL=${FRONTEND_URL-http://frontend:3000}
       - GEOIP_UPDATE_INTERVAL_HOURS=${GEOIP_UPDATE_INTERVAL_HOURS:-12}
-      # GeoIP sources. DB-IP needs no account; MaxMind is optional.
+      # GeoIP sources. The first four need no account; MaxMind is optional.
       - DBIP_ENABLED=${DBIP_ENABLED:-true}
+      - IPLOCATE_ENABLED=${IPLOCATE_ENABLED:-true}
+      - IPFIRE_ENABLED=${IPFIRE_ENABLED:-true}
+      - IP_LOCATION_DB_ENABLED=${IP_LOCATION_DB_ENABLED:-true}
       - MAXMIND_ACCOUNT_ID=${MAXMIND_ACCOUNT_ID:-}
       - MAXMIND_LICENSE_KEY=${MAXMIND_LICENSE_KEY:-}
       - TRUST_PROXY_HEADERS=${TRUST_PROXY_HEADERS:-false}

@@ -20,11 +20,16 @@ const (
 )
 
 type Config struct {
-	// MaxMind credentials are optional: with none set, beacon runs on DB-IP
-	// alone, which needs no account.
+	// MaxMind credentials are optional: with none set, beacon runs on the
+	// sources that need no account.
 	MaxMindAccountID  string
 	MaxMindLicenseKey string
 	DBIPEnabled       bool
+
+	// The other no-account sources, each on unless switched off.
+	IPLocateEnabled     bool
+	IPFireEnabled       bool
+	IPLocationDBEnabled bool
 
 	UpdatePeriodHours int
 	DataDir           string
@@ -67,11 +72,23 @@ func Load() (Config, error) {
 	}
 
 	var err error
-	if cfg.DBIPEnabled, err = boolEnv("DBIP_ENABLED", true); err != nil {
-		return Config{}, err
+	for _, s := range []struct {
+		env string
+		dst *bool
+	}{
+		{"DBIP_ENABLED", &cfg.DBIPEnabled},
+		{"IPLOCATE_ENABLED", &cfg.IPLocateEnabled},
+		{"IPFIRE_ENABLED", &cfg.IPFireEnabled},
+		{"IP_LOCATION_DB_ENABLED", &cfg.IPLocationDBEnabled},
+	} {
+		if *s.dst, err = boolEnv(s.env, true); err != nil {
+			return Config{}, err
+		}
 	}
-	if !cfg.DBIPEnabled && cfg.MaxMindAccountID == "" {
-		return Config{}, fmt.Errorf("no GeoIP source enabled: set MAXMIND_* credentials, or leave DBIP_ENABLED=true")
+	if !cfg.DBIPEnabled && !cfg.IPLocateEnabled && !cfg.IPFireEnabled && !cfg.IPLocationDBEnabled &&
+		cfg.MaxMindAccountID == "" {
+		return Config{}, fmt.Errorf("no GeoIP source enabled: set MAXMIND_* credentials, or leave one of " +
+			"DBIP_ENABLED, IPLOCATE_ENABLED, IPFIRE_ENABLED, IP_LOCATION_DB_ENABLED on")
 	}
 
 	cfg.UpdatePeriodHours = defaultUpdatePeriodHours

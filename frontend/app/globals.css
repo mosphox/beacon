@@ -552,6 +552,16 @@ button.ip {
   border-color: color-mix(in srgb, var(--accent) 40%, transparent);
 }
 
+/* Who raised the marks before it: an annotation, in the annotation style, because a mark
+   is one database's assertion rather than something the server measured. */
+.marked-by {
+  font-family: var(--font-outfit), sans-serif;
+  font-size: 0.75rem;
+  font-weight: 300;
+  line-height: 1.4;
+  color: var(--ink-3);
+}
+
 /* ------------------------------------------------------ source comparison */
 
 /* Sources side by side, one column each. This is the page's reason to exist, so the
@@ -626,6 +636,15 @@ button.ip {
   user-select: none;
 }
 
+/* A field outside this source's data: not an answer, so not the italic absence above,
+   and not counted when the row is marked. A dash in --ink-4 is a hint and nothing more;
+   the words are there for screen readers, in the cell. */
+.compare td.uncovered {
+  font-family: var(--font-outfit), sans-serif;
+  color: var(--ink-4);
+  user-select: none;
+}
+
 /* Three columns of place names do not fit a phone. Same markup, stacked: each value
    carries its source as a prefix, so the attribution survives losing the columns. */
 @media (max-width: 639px) {
@@ -670,12 +689,22 @@ button.ip {
     padding: 0 0 4px;
   }
 
+  /* Stacked, every value names its source anyway, so a source with nothing to say about
+     a field simply is not listed under it. The table keeps the dash for column alignment;
+     a list has no columns to keep. */
+  .compare td.uncovered {
+    display: none;
+  }
+
   /* The prefix stands in for the column header, so it gets the column's width back:
      fixed here, the values line up down the block the way they would in the table. */
+  /* Sized for the longest source name, "ip-location-db", with the padding as a floor so a
+     longer one can never run into its value. */
   .compare td::before {
     content: attr(data-source);
     display: inline-block;
-    min-width: 4.5rem;
+    min-width: 5.75rem;
+    padding-right: 8px;
     font-family: var(--font-outfit), sans-serif;
     font-style: normal;
     font-size: 0.6875rem;

@@ -6,7 +6,9 @@ require (
 	github.com/caddyserver/certmagic v0.25.4
 	github.com/libdns/cloudflare v0.2.2
 	github.com/oschwald/geoip2-golang v1.13.0
+	github.com/oschwald/maxminddb-golang v1.13.1
 	github.com/pires/go-proxyproto v0.15.0
+	github.com/ulikunitz/xz v0.5.17
 	golang.org/x/net v0.56.0
 	golang.org/x/sync v0.21.0
 )
@@ -17,7 +19,6 @@ require (
 	github.com/libdns/libdns v1.1.1 // indirect
 	github.com/mholt/acmez/v3 v3.1.6 // indirect
 	github.com/miekg/dns v1.1.72 // indirect
-	github.com/oschwald/maxminddb-golang v1.13.1 // indirect
 	github.com/zeebo/blake3 v0.2.4 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	go.uber.org/zap v1.27.1 // indirect

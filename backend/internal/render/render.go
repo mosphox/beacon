@@ -70,38 +70,59 @@ func (resp Response) WithHTTP2(fp *h2fp.Fingerprint) Response {
 // consulted first and may know an address's ASN while knowing nothing about
 // where it is, and in that case the top level — and all of v1 — should still
 // carry the city DB-IP knows. Values are never blended, only filled in.
+//
+// Filling is free only between independent facts. The country is settled
+// first, by the first source that names one, and the rest of the place is
+// taken only from sources that agree with it; otherwise one source's city could
+// land beside another's country, describing a place nobody reported. Likewise
+// an operator is only ever paired with the network number it was given for,
+// and a registered country with its own code.
 func (resp Response) primary() geoip.Record {
 	var out geoip.Record
 	for _, a := range resp.Answers {
-		r := a.Record
-		fillString(&out.City, r.City)
-		fillString(&out.Country, r.Country)
-		fillString(&out.CountryCode, r.CountryCode)
-		fillString(&out.Continent, r.Continent)
-		fillString(&out.ContinentCode, r.ContinentCode)
-		fillString(&out.PostalCode, r.PostalCode)
-		fillString(&out.TimeZone, r.TimeZone)
-		fillString(&out.RegisteredCountry, r.RegisteredCountry)
-		fillString(&out.RegisteredCountryCode, r.RegisteredCountryCode)
-		fillString(&out.ASNOrg, r.ASNOrg)
+		if a.Record.CountryCode != "" {
+			out.CountryCode = a.Record.CountryCode
+			break
+		}
+	}
 
-		if len(out.Subdivisions) == 0 {
-			out.Subdivisions = r.Subdivisions
+	for _, a := range resp.Answers {
+		r := a.Record
+		if r.CountryCode == out.CountryCode {
+			fillString(&out.City, r.City)
+			fillString(&out.Country, r.Country)
+			fillString(&out.Continent, r.Continent)
+			fillString(&out.ContinentCode, r.ContinentCode)
+			fillString(&out.PostalCode, r.PostalCode)
+			fillString(&out.TimeZone, r.TimeZone)
+			if len(out.Subdivisions) == 0 {
+				out.Subdivisions = r.Subdivisions
+			}
+			if !out.HasCoordinates && r.HasCoordinates {
+				out.Latitude, out.Longitude = r.Latitude, r.Longitude
+				out.AccuracyRadius = r.AccuracyRadius
+				out.HasCoordinates = true
+			}
+			if out.MetroCode == 0 {
+				out.MetroCode = r.MetroCode
+			}
+			out.InEuropeanUnion = out.InEuropeanUnion || r.InEuropeanUnion
 		}
-		if !out.HasCoordinates && r.HasCoordinates {
-			out.Latitude, out.Longitude = r.Latitude, r.Longitude
-			out.AccuracyRadius = r.AccuracyRadius
-			out.HasCoordinates = true
+
+		switch {
+		case out.RegisteredCountryCode == "" && r.RegisteredCountryCode != "":
+			out.RegisteredCountryCode, out.RegisteredCountry = r.RegisteredCountryCode, r.RegisteredCountry
+		case r.RegisteredCountryCode == out.RegisteredCountryCode:
+			fillString(&out.RegisteredCountry, r.RegisteredCountry)
 		}
-		if out.MetroCode == 0 {
-			out.MetroCode = r.MetroCode
-		}
-		if out.ASN == 0 {
-			out.ASN = r.ASN
+		switch {
+		case out.ASN == 0 && r.ASN != 0:
+			out.ASN, out.ASNOrg = r.ASN, r.ASNOrg
+		case r.ASN == out.ASN:
+			fillString(&out.ASNOrg, r.ASNOrg)
 		}
 
 		// Flags are assertions, so any source asserting one carries.
-		out.InEuropeanUnion = out.InEuropeanUnion || r.InEuropeanUnion
 		out.IsAnycast = out.IsAnycast || r.IsAnycast
 		out.IsAnonymousProxy = out.IsAnonymousProxy || r.IsAnonymousProxy
 		out.IsSatelliteProvider = out.IsSatelliteProvider || r.IsSatelliteProvider
@@ -188,20 +209,46 @@ func (g groups) render() string {
 type groups []group
 
 // locationSegment is the location half of the plain-text line, in the original
-// format: "City [CC] Country", with absent parts omitted.
-func locationSegment(r geoip.Record) string {
+// format: "City [CC] Country", with absent parts omitted. The country is
+// written with the name names gives its code, so every source's answer for the
+// same country reads identically; a code no source names is shown bare.
+func locationSegment(r geoip.Record, names map[string]string) string {
 	var parts []string
 	if r.City != "" {
 		parts = append(parts, r.City)
 	}
-	if r.Country != "" {
-		if r.CountryCode != "" {
-			parts = append(parts, "["+r.CountryCode+"] "+r.Country)
-		} else {
-			parts = append(parts, r.Country)
-		}
+	switch {
+	case r.CountryCode != "" && names[r.CountryCode] != "":
+		parts = append(parts, "["+r.CountryCode+"] "+names[r.CountryCode])
+	case r.CountryCode != "":
+		parts = append(parts, "["+r.CountryCode+"]")
+	case r.Country != "":
+		parts = append(parts, r.Country)
 	}
 	return strings.Join(parts, " ")
+}
+
+// countryNames settles one display name per country code: the name given by
+// the first source, in priority order, that gives one.
+//
+// Sources name countries differently — IPFire says "United States of America"
+// and "Russian Federation" where DB-IP says "United States" and "Russia" — and
+// one reports only codes. Grouping on names would report a spelling as a
+// disagreement about where the address is. The per-source entries in JSON keep
+// each source's own spelling; this is only for comparing and displaying them
+// side by side.
+func (resp Response) countryNames() map[string]string {
+	names := make(map[string]string)
+	for _, a := range resp.Answers {
+		cc, name := a.Record.CountryCode, a.Record.Country
+		if cc == "" || name == "" {
+			continue
+		}
+		if _, seen := names[cc]; !seen {
+			names[cc] = name
+		}
+	}
+	return names
 }
 
 // asnKey groups ASNs by number, not by label. MaxMind and DB-IP almost never
@@ -238,7 +285,10 @@ func (resp Response) asnGroups() groups {
 // reads as a conflict where there is none. Folding only happens when there is
 // exactly one more specific candidate, so a genuine split is still shown.
 func (resp Response) locationGroups() groups {
-	out := groups(groupByValue(resp.Answers, locationSegment))
+	names := resp.countryNames()
+	out := groups(groupByValue(resp.Answers, func(r geoip.Record) string {
+		return locationSegment(r, names)
+	}))
 	if len(out) < 2 {
 		return out
 	}
@@ -268,8 +318,17 @@ func (resp Response) locationGroups() groups {
 // Agree reports whether every source that had an opinion produced a compatible
 // location and the same autonomous system.
 func (resp Response) Agree() bool {
-	return len(resp.locationGroups()) <= 1 && len(resp.asnGroups()) <= 1
+	return resp.LocationsAgree() && resp.NetworksAgree()
 }
+
+// LocationsAgree is the location half of Agree. A page that shows location and
+// network apart needs them apart: sources whose routing data puts an address in
+// a different autonomous system than the registry does still agree on where it
+// is, and saying otherwise under a heading about location would be false.
+func (resp Response) LocationsAgree() bool { return len(resp.locationGroups()) <= 1 }
+
+// NetworksAgree is the network half of Agree.
+func (resp Response) NetworksAgree() bool { return len(resp.asnGroups()) <= 1 }
 
 // ---------------------------------------------------------------- plain text
 
@@ -332,10 +391,49 @@ type recordFlags struct {
 
 // sourceEntry is one provider's complete answer.
 type sourceEntry struct {
-	Source   string      `json:"source"`
+	Source string `json:"source"`
+	// Provides names the fields this source can fill for any address, by the
+	// keys below. A null or false from a source that provides the field is its
+	// answer; from one that does not, it means nothing either way.
+	Provides []string    `json:"provides"`
 	Location location    `json:"location"`
 	Network  network     `json:"network"`
 	Flags    recordFlags `json:"flags"`
+}
+
+// fieldNames names each geoip field by the response key it governs, in schema
+// order. "region" covers the region and its subdivisions, "coordinates" the
+// latitude and longitude, and "timezone" the local time derived from it.
+var fieldNames = []struct {
+	field geoip.Fields
+	name  string
+}{
+	{geoip.FieldCity, "city"},
+	{geoip.FieldRegion, "region"},
+	{geoip.FieldPostalCode, "postal_code"},
+	{geoip.FieldCoordinates, "coordinates"},
+	{geoip.FieldAccuracyRadius, "accuracy_radius_km"},
+	{geoip.FieldTimeZone, "timezone"},
+	{geoip.FieldMetroCode, "metro_code"},
+	{geoip.FieldCountry, "country"},
+	{geoip.FieldContinent, "continent"},
+	{geoip.FieldEuropeanUnion, "in_european_union"},
+	{geoip.FieldRegisteredCountry, "registered_country"},
+	{geoip.FieldASN, "asn"},
+	{geoip.FieldASNOrg, "asn_org"},
+	{geoip.FieldAnycast, "anycast"},
+	{geoip.FieldAnonymousProxy, "anonymous_proxy"},
+	{geoip.FieldSatelliteProvider, "satellite_provider"},
+}
+
+func providesList(f geoip.Fields) []string {
+	out := make([]string, 0, len(fieldNames))
+	for _, fn := range fieldNames {
+		if f.Has(fn.field) {
+			out = append(out, fn.name)
+		}
+	}
+	return out
 }
 
 type tlsOffered struct {
@@ -417,8 +515,12 @@ type payloadV2 struct {
 	Network  network     `json:"network"`
 	Flags    recordFlags `json:"flags"`
 
-	SourcesAgree bool          `json:"sources_agree"`
-	Sources      []sourceEntry `json:"sources"`
+	SourcesAgree bool `json:"sources_agree"`
+	// The two halves of sources_agree, for a client showing location and network
+	// apart.
+	LocationsAgree bool          `json:"locations_agree"`
+	NetworksAgree  bool          `json:"networks_agree"`
+	Sources        []sourceEntry `json:"sources"`
 
 	// Null unless beacon terminated this connection's TLS itself.
 	TLS *tlsBlock `json:"tls"`
@@ -523,6 +625,7 @@ func (resp Response) v2() payloadV2 {
 	for _, a := range resp.Answers {
 		sources = append(sources, sourceEntry{
 			Source:   a.Source,
+			Provides: providesList(a.Provides),
 			Location: toLocation(a.Record),
 			Network:  toNetwork(a.Record),
 			Flags:    toFlags(a.Record),
@@ -530,17 +633,19 @@ func (resp Response) v2() payloadV2 {
 	}
 
 	return payloadV2{
-		TLS:          resp.tlsBlock(),
-		HTTP2:        resp.http2Block(),
-		Version:      SchemaVersion,
-		IP:           resp.IP,
-		Family:       emptyToNull(family(resp.IP)),
-		Hostname:     emptyToNull(resp.Hostname),
-		Location:     toLocation(primary),
-		Network:      toNetwork(primary),
-		Flags:        toFlags(primary),
-		SourcesAgree: resp.Agree(),
-		Sources:      sources,
+		TLS:            resp.tlsBlock(),
+		HTTP2:          resp.http2Block(),
+		Version:        SchemaVersion,
+		IP:             resp.IP,
+		Family:         emptyToNull(family(resp.IP)),
+		Hostname:       emptyToNull(resp.Hostname),
+		Location:       toLocation(primary),
+		Network:        toNetwork(primary),
+		Flags:          toFlags(primary),
+		SourcesAgree:   resp.Agree(),
+		LocationsAgree: resp.LocationsAgree(),
+		NetworksAgree:  resp.NetworksAgree(),
+		Sources:        sources,
 	}
 }
 

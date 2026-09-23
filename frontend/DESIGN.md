@@ -223,6 +223,37 @@ unattributed directly under a heading announcing that the sources disagreed, whi
 way to tell whose numbers those were. When there is more than one source, every location
 and network field now sits in a column with a name on it.
 
+**A source is compared only on what it covers.** The sources differ in precision, not
+just in opinion: MaxMind has postal codes and DB-IP Lite has none for any address; IPLocate
+and IPFire know the country and not the city; ip-location-db gives a bare country code.
+Each source says what it covers (`provides` in the response), and the comparison honours
+it. Otherwise the marker loses its meaning: with five sources, a country-only database's
+empty "Coordinates" cell would put a `--warn` edge on nearly every row whether anyone
+disagreed or not.
+
+- A source joins a table only if it covers something in it. Country-level sources are not
+  columns in "Where it puts you"; a note under that table names them and points to the
+  next table, where they are. A source with no network data is not a column under
+  "Network".
+- A cell outside a source's data is a dash in `--ink-4`, with "not in this source's data"
+  for screen readers, and it does not count when deciding whether the row differs. That
+  is distinct from the italic "not available" in `--ink-3`, which is a source that covers
+  the field answering "nothing for this address" — an answer, and so still a difference.
+- Stacked on a phone, where every value already names its source, uncovered cells are
+  dropped rather than dashed: a list has no columns to hold in line.
+- A row no column covers is not drawn at all. "Registered to" exists only while MaxMind
+  is configured.
+
+Country names are shown one way per code — the first source's spelling, or the browser's
+own name for a code no source names. IPFire says "United States of America" where DB-IP
+says "United States", and comparing the text would present a spelling as a disagreement
+about where the visitor is. The JSON keeps every source's own spelling; the table compares
+places, not orthography.
+
+The connection's flags are assertions by particular databases, so "Marked as" says whose,
+in the annotation style beside the badges. "Nothing unusual" is only said when some source
+present actually checks: DB-IP Lite never does, and its silence is not a clean bill.
+
 ## States
 
 Every screen needs all four, designed rather than improvised:

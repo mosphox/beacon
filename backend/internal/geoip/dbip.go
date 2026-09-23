@@ -27,6 +27,13 @@ func NewDBIP(dataDir string, client *http.Client) *DBIP {
 
 func (d *DBIP) Name() string { return "DB-IP" }
 
+// Provides is what the Lite editions carry: no postal code, accuracy radius,
+// time zone, metro code, registered country or traits, for any address.
+func (d *DBIP) Provides() Fields {
+	return FieldCity | FieldRegion | FieldCoordinates | FieldCountry | FieldContinent |
+		FieldEuropeanUnion | FieldASN | FieldASNOrg
+}
+
 func (d *DBIP) paths() (city, asn string) {
 	return filepath.Join(d.dataDir, "dbip-city-lite.mmdb"),
 		filepath.Join(d.dataDir, "dbip-asn-lite.mmdb")

@@ -16,9 +16,12 @@ chosen automatically from the request's `User-Agent` and `Accept` headers.
   timezone and local time, continent, EU membership, anycast/proxy/satellite
   flags, and ASN (number + organization) — plus the caller's reverse-DNS
   hostname.
-- **Multiple GeoIP sources, compared.** DB-IP Lite (no account needed) and
-  MaxMind GeoLite2 (optional) answer independently. Where they agree the
-  output is unchanged; where they disagree every answer is shown and
+- **Multiple GeoIP sources, compared.** Four sources that need no account —
+  DB-IP Lite, IPLocate, IPFire Location and ip-location-db — and MaxMind
+  GeoLite2 (optional) answer independently. Each is an independent dataset
+  rather than a repackaging of another; they differ in precision, from a city
+  down to a bare country code, and each says what it covers. Where they agree
+  the output is unchanged; where they disagree every answer is shown and
   attributed. JSON always carries all of them.
 - **Versioned JSON.** The nested `version: 2` object is the default; the
   original flat shape is still available as `?v=1`.
@@ -34,8 +37,11 @@ chosen automatically from the request's `User-Agent` and `Accept` headers.
   any address.
 - **Self-maintaining GeoIP data.** Databases are downloaded on first start and
   refreshed on a schedule, written to a temp file and installed atomically.
-  MaxMind archives are additionally SHA-256–verified against the published
-  checksum; DB-IP publishes none. No database files live in the repo.
+  Everything that can be verified is: MaxMind's, IPLocate's and
+  ip-location-db's files against the SHA-256 each publishes, IPFire's database
+  against IPFire's own signature. DB-IP publishes nothing to check against. A
+  source whose published data has not changed is not downloaded again. No
+  database files live in the repo.
 - **Zero-downtime refresh.** Database readers are hot-swapped under a lock; the
   service keeps answering during an update.
 - **Hardened.** Non-root containers, static CGO-free Go binary, license key
@@ -149,14 +155,28 @@ Missing values are `null` throughout — never `0` or `""`. Top-level
 can ignore `sources` entirely. `sources` carries the complete answer from
 every provider **that had data for the address** — a provider with no record is
 omitted rather than listed empty, so an absent name means either "no data" or
-"not enabled". `sources_agree` says whether the listed ones matched.
+"not enabled". `sources_agree` says whether the listed ones matched, and
+`locations_agree` / `networks_agree` are its two halves. They are split because
+sources often agree on where an address is while naming different autonomous
+systems for it: routing data against registry data.
 
 Agreement is semantic, not textual. Sources are compared on the autonomous
-system *number*, so "GOOGLE" against "Google LLC" is not a disagreement, and a
-source that knows only the country is treated as a coarser answer that folds
-into a more specific one rather than as a conflict. Top-level fields are filled
-per field from the first source that has each one, so a source knowing only the
-ASN does not blank out a city another source knows.
+system *number*, so "GOOGLE" against "Google LLC" is not a disagreement, and on
+the country *code*, so IPFire's "United States of America" against DB-IP's
+"United States" is not one either. A source that knows only the country is
+treated as a coarser answer that folds into a more specific one rather than as a
+conflict. Top-level fields are filled per field from the first source that has
+each one, so a source knowing only the ASN does not blank out a city another
+source knows. The place is kept whole, though: the first source to name a
+country settles it, and the rest of the location is taken only from sources that
+agree, so the top level never pairs one source's city with another's country.
+
+Each entry in `sources` also lists what that source `provides`: the fields it
+can fill for any address, by the keys used here (`region` covers the
+subdivisions, `coordinates` latitude and longitude, `timezone` the local time).
+A `null` or `false` from a source that provides the field is its answer. From
+one that does not, it means nothing either way: DB-IP Lite has no postal code
+for any address, and ip-location-db has nothing but the country code.
 
 ```
 $ curl -s -H 'Accept: application/json' http://localhost/203.0.113.17
@@ -180,15 +200,23 @@ $ curl -s -H 'Accept: application/json' http://localhost/203.0.113.17
                "asn_label": "AS9304 (HGC Global Communications Limited)" },
   "flags": { "anycast": false, "anonymous_proxy": false, "satellite_provider": false },
   "sources_agree": false,
+  "locations_agree": false,
+  "networks_agree": false,
   "sources": [
-    { "source": "MaxMind", "location": { ... }, "network": { ... }, "flags": { ... } },
-    { "source": "DB-IP",   "location": { ... }, "network": { ... }, "flags": { ... } }
+    { "source": "MaxMind", "provides": [ "city", "region", ... ],
+      "location": { ... }, "network": { ... }, "flags": { ... } },
+    { "source": "DB-IP", "provides": [ "city", "region", "coordinates", ... ],
+      "location": { ... }, "network": { ... }, "flags": { ... } },
+    { "source": "IPFire", "provides": [ "country", "continent", "asn", "asn_org",
+                                        "anycast", "anonymous_proxy", "satellite_provider" ],
+      "location": { ... }, "network": { ... }, "flags": { ... } }
   ]
 }
 ```
 
 Every entry in `sources` has the same shape as the top-level
-`location` / `network` / `flags` trio — a full record, not a diff.
+`location` / `network` / `flags` trio — a full record, not a diff — and keeps
+the source's own spelling of every name.
 
 `latitude`/`longitude` are `null` when a source has no location for the
 address, which is distinct from a genuine `0, 0`.
@@ -215,7 +243,9 @@ $ curl -s http://localhost/8.8.8.8
 
 When sources disagree, each distinct answer carries the sources that reported
 it, and the alternatives are separated by ` / `. Location and ASN are grouped
-independently, so a disagreement about one does not clutter the other:
+independently, so a disagreement about one does not clutter the other. A
+country is written with the first source's name for its code; a code no source
+names is shown bare, `[RU]`:
 
 ```
 $ curl -s http://localhost/203.0.113.42
@@ -235,12 +265,15 @@ $ curl -s http://localhost/203.0.113.17
 ## Configuration
 
 Settings are environment variables. Copy `example.env` to `.env`; compose reads
-it. Nothing is required: beacon runs on DB-IP alone, which needs no account.
+it. Nothing is required: beacon runs on the four sources that need no account.
 Misconfiguration is rejected at startup rather than at the first request.
 
 | Variable                      | Required | Default   | Description                                                       |
 | ----------------------------- | -------- | --------- | ----------------------------------------------------------------- |
 | `DBIP_ENABLED`                | no       | `true`    | Use DB-IP Lite. No account required.                              |
+| `IPLOCATE_ENABLED`            | no       | `true`    | Use IPLocate's IP-to-Country and IP-to-ASN. No account required.  |
+| `IPFIRE_ENABLED`              | no       | `true`    | Use the IPFire Location database. No account required.            |
+| `IP_LOCATION_DB_ENABLED`      | no       | `true`    | Use ip-location-db's user-country. No account required.           |
 | `MAXMIND_ACCOUNT_ID`          | no       | —         | MaxMind account ID. Set together with the license key, or neither.|
 | `MAXMIND_LICENSE_KEY`         | no       | —         | MaxMind license key.                                              |
 | `GEOIP_UPDATE_INTERVAL_HOURS` | no       | `12`      | How often the backend checks for / downloads fresh databases.     |
@@ -389,9 +422,10 @@ cp example.env .env
 docker compose up -d --build
 ```
 
-No credentials are needed to start: DB-IP Lite is downloaded on first run.
-Watch it come up with `docker compose logs -f backend`, or wait for the
-container to report healthy.
+No credentials are needed to start: the four no-account sources are downloaded
+on first run — about 175 MB, 290 MB once unpacked on the data volume. Watch it
+come up with `docker compose logs -f backend`, or wait for the container to
+report healthy.
 
 With the default `HOST=0.0.0.0` / `PORT=80`:
 
@@ -410,16 +444,49 @@ Each source manages its own files in the data volume and downloads them on
 first start if they are missing. A background loop re-checks every
 `GEOIP_UPDATE_INTERVAL_HOURS`, using a per-source `.timestamp` marker. A source
 may impose a longer floor: DB-IP publishes monthly, so it is never checked more
-than once a day however low the interval is set.
+than once a day however low the interval is set. The other no-account sources
+have a cheap way to ask whether anything changed, and a check that finds
+nothing new downloads nothing.
 
-**DB-IP Lite** — free, no account, CC-BY 4.0, published monthly at a
-month-stamped URL. beacon asks for the current month and falls back to the
+Every source here is its own dataset. Services that repackage one beacon
+already reads — RIPEstat's geolocation is MaxMind's, and several projects
+republish GeoLite2 and DB-IP — are deliberately not used.
+
+**DB-IP Lite** — City and ASN, free, no account, CC-BY 4.0, published monthly
+at a month-stamped URL. beacon asks for the current month and falls back to the
 previous one when the new files are not out yet.
 
 **MaxMind GeoLite2** — Country, City and ASN, fetched with HTTP basic auth,
 streamed while hashing, SHA-256–checked against MaxMind's published checksum.
 Archives are capped at 64 members and 512 MiB per database, and the license key
 is redacted from any logged URL or error.
+
+**IPLocate** — IP-to-Country and IP-to-ASN (the ASN records also carry the
+network's organisation), free, no account, CC BY-SA 4.0, rebuilt daily. They
+are published through Git LFS, so the pointer file in the repository carries
+each database's SHA-256 and size: one small request says whether anything
+changed, and anything downloaded is checked against it.
+
+**IPFire Location** — country, ASN, and flags for anycast, satellite and
+anonymous-proxy networks, the only free source of those three. Free, no
+account, CC BY-SA 4.0, rebuilt daily. It is the libloc format rather than
+MMDB, read by beacon directly from a memory map. The file is signed by IPFire,
+and a database that does not verify against IPFire's key is never installed.
+Refreshes are conditional requests, so an unchanged database costs a 304.
+Decompression holds about 65 MiB for the moment it runs, because IPFire
+compresses with a 64 MiB dictionary. A stream asking for more than 128 MiB is
+refused before decoding starts.
+
+**ip-location-db** — `user-country` from sapics/ip-location-db: country codes
+only, public domain (PDDL), rebuilt daily from RIR allocation statistics, BGP
+routing archives and operators' geofeeds, with no WHOIS data and nothing from
+MaxMind or DB-IP. Checked against the SHA-256 published beside it. The project's
+GeoLite2 and DB-IP republications are not used.
+
+IPLocate's and ip-location-db's files are MMDB with flat records rather than
+the GeoIP2 layout, and are read with `maxminddb-golang` directly:
+`geoip2-golang` opens them without complaint and returns an empty record for
+every address.
 
 Every database is written to a temp file and only then renamed into place, and
 readers are swapped under a lock, so a lookup never sees a half-written file
@@ -538,7 +605,8 @@ backend/                  Go service
   main.go                 HTTP server, content negotiation, frontend proxy
   internal/config         env config and validation
   internal/browser        navigation vs. tool detection (Fetch Metadata, UA)
-  internal/geoip          providers, registry, refresh loop, mmdb lookups
+  internal/geoip          providers, registry, refresh loop, mmdb and libloc readers
+    testdata/mmdbgen      writes the test .mmdb fixtures; its own module
   internal/rdns           bounded, cached reverse-DNS lookups
   internal/render         JSON (v1/v2) / plain-text response shaping
   internal/h2fp           Akamai HTTP/2 fingerprint, frame capture
@@ -566,9 +634,20 @@ This product includes GeoLite2 data created by MaxMind, available from
 IP geolocation by [DB-IP](https://db-ip.com), licensed under
 [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
 
-Both notices also appear in the page's footer, which is where the licences
+IP address data powered by [IPLocate.io](https://www.iplocate.io), licensed
+under [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/).
+
+Location data from the [IPFire Location](https://location.ipfire.org) database,
+licensed under [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/).
+
+Country data from [ip-location-db](https://github.com/sapics/ip-location-db),
+in the public domain under the
+[PDDL](https://opendatacommons.org/licenses/pddl/1-0/).
+
+Every notice also appears in the page's footer, which is where the licences
 require them: attribution is owed to the people using the service, not only to
-people reading the repository.
+people reading the repository. beacon answers lookups from the databases; it
+does not redistribute the databases themselves.
 
 ## License
 

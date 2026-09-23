@@ -7,7 +7,7 @@
  * same, and reloading `/` cycles through them.
  */
 
-import type { BeaconResponse, Location, Source } from './types';
+import type { BeaconResponse, Location, Network, Provides, Source } from './types';
 
 const EMPTY_LOCATION: Location = {
   city: null,
@@ -97,7 +97,120 @@ const PHOENIX = (): Location =>
     local_time: localTime('America/Phoenix'),
   });
 
+const BRISBANE = (): Location =>
+  location({
+    city: 'Brisbane',
+    region: 'Queensland',
+    region_code: 'QLD',
+    subdivisions: [{ name: 'Queensland', code: 'QLD' }],
+    country: 'Australia',
+    country_code: 'AU',
+    continent: 'Oceania',
+    continent_code: 'OC',
+    latitude: -27.4679,
+    longitude: 153.0281,
+    accuracy_radius_km: 1000,
+    timezone: 'Australia/Brisbane',
+    local_time: localTime('Australia/Brisbane'),
+  });
+
 const NO_FLAGS = { anycast: false, anonymous_proxy: false, satellite_provider: false };
+
+/**
+ * What each source provides, as the backend declares it. The fixtures only ever fill
+ * these fields for a source, so the page meets the same mix of precision it does in
+ * production: a city from DB-IP, a bare country code from ip-location-db.
+ */
+const PROVIDES = {
+  MaxMind: [
+    'city',
+    'region',
+    'postal_code',
+    'coordinates',
+    'accuracy_radius_km',
+    'timezone',
+    'metro_code',
+    'country',
+    'continent',
+    'in_european_union',
+    'registered_country',
+    'asn',
+    'asn_org',
+    'anycast',
+    'anonymous_proxy',
+    'satellite_provider',
+  ],
+  'DB-IP': [
+    'city',
+    'region',
+    'coordinates',
+    'country',
+    'continent',
+    'in_european_union',
+    'asn',
+    'asn_org',
+  ],
+  IPLocate: ['country', 'continent', 'asn', 'asn_org'],
+  IPFire: [
+    'country',
+    'continent',
+    'asn',
+    'asn_org',
+    'anycast',
+    'anonymous_proxy',
+    'satellite_provider',
+  ],
+  'ip-location-db': ['country'],
+} satisfies Record<string, Provides[]>;
+
+type SourceName = keyof typeof PROVIDES;
+
+function net(asn: number, org: string): Network {
+  return { asn, asn_org: org, asn_label: `AS${asn} (${org})` };
+}
+
+const NO_NETWORK: Network = { asn: null, asn_org: null, asn_label: null };
+
+/** A source's answer, cut down to the fields that source provides. */
+function source(
+  name: SourceName,
+  loc: Location,
+  network: Network = NO_NETWORK,
+  flags: Partial<typeof NO_FLAGS> = {},
+): Source {
+  const provides: Provides[] = PROVIDES[name];
+  const has = (k: Provides) => provides.includes(k);
+  return {
+    source: name,
+    provides,
+    location: location({
+      city: has('city') ? loc.city : null,
+      region: has('region') ? loc.region : null,
+      region_code: has('region') ? loc.region_code : null,
+      subdivisions: has('region') ? loc.subdivisions : [],
+      postal_code: has('postal_code') ? loc.postal_code : null,
+      country: has('country') && name !== 'ip-location-db' ? loc.country : null,
+      country_code: has('country') ? loc.country_code : null,
+      continent: has('continent') ? loc.continent : null,
+      continent_code: has('continent') ? loc.continent_code : null,
+      in_european_union: has('in_european_union') ? loc.in_european_union : false,
+      registered_country: has('registered_country') ? loc.registered_country : null,
+      registered_country_code: has('registered_country') ? loc.registered_country_code : null,
+      latitude: has('coordinates') ? loc.latitude : null,
+      longitude: has('coordinates') ? loc.longitude : null,
+      accuracy_radius_km: has('accuracy_radius_km') ? loc.accuracy_radius_km : null,
+      timezone: has('timezone') ? loc.timezone : null,
+      local_time: has('timezone') ? loc.local_time : null,
+      metro_code: has('metro_code') ? loc.metro_code : null,
+    }),
+    network: {
+      asn: has('asn') ? network.asn : null,
+      asn_org: has('asn_org') ? network.asn_org : null,
+      asn_label: has('asn') ? network.asn_label : null,
+    },
+    flags: { ...NO_FLAGS, ...flags },
+  };
+}
 
 const TLS_BLOCK = {
   ja3:
@@ -158,50 +271,52 @@ type Fixture = {
   family: string;
   hostname: string | null;
   sources: Source[];
+  /** Whether the sources agree on the location; the network half is computed. */
   agree: boolean;
 };
 
 const FIXTURES: Fixture[] = [
   {
+    // Every source, agreeing: the country-level ones fold into the city.
     ip: '203.0.113.84',
     family: 'ipv4',
     hostname: '84.33.3.149.silknet.com',
     agree: true,
     sources: [
-      {
-        source: 'MaxMind',
-        location: TBILISI(),
-        network: { asn: 35805, asn_org: 'SILKNET-AS', asn_label: 'AS35805 (SILKNET-AS)' },
-        flags: NO_FLAGS,
-      },
-      {
-        source: 'DB-IP',
-        location: TBILISI(),
-        network: { asn: 35805, asn_org: 'JSC Silknet', asn_label: 'AS35805 (JSC Silknet)' },
-        flags: NO_FLAGS,
-      },
+      source('MaxMind', TBILISI(), net(35805, 'SILKNET-AS')),
+      source('DB-IP', TBILISI(), net(35805, 'JSC Silknet')),
+      source('IPLocate', TBILISI(), net(35805, 'JSC "Silknet"')),
+      source('IPFire', TBILISI(), net(35805, 'JSC "Silknet"')),
+      source('ip-location-db', TBILISI()),
     ],
   },
   {
     // Sources disagreeing — beacon's differentiator, and awkward to reproduce on demand.
+    // IPFire spells the country its own way, which must not read as a disagreement.
     ip: '8.8.8.8',
     family: 'ipv4',
     hostname: 'dns.google',
     agree: false,
     sources: [
-      {
-        source: 'MaxMind',
-        location: MOUNTAIN_VIEW(),
-        network: { asn: 15169, asn_org: 'GOOGLE', asn_label: 'AS15169 (GOOGLE)' },
-        flags: { ...NO_FLAGS, anycast: true },
-      },
-      {
-        source: 'DB-IP',
-        location: PHOENIX(),
-        network: { asn: 15169, asn_org: 'Google LLC', asn_label: 'AS15169 (Google LLC)' },
-        flags: { ...NO_FLAGS, anycast: true },
-      },
+      source('MaxMind', MOUNTAIN_VIEW(), net(15169, 'GOOGLE'), { anycast: true }),
+      source('DB-IP', PHOENIX(), net(15169, 'Google LLC')),
+      source('IPLocate', MOUNTAIN_VIEW(), net(15169, 'Google LLC')),
+      source(
+        'IPFire',
+        { ...MOUNTAIN_VIEW(), country: 'United States of America' },
+        net(15169, 'Google LLC'),
+        { anycast: true },
+      ),
+      source('ip-location-db', MOUNTAIN_VIEW()),
     ],
+  },
+  {
+    // One source alone: no comparison, and nothing that checks for the flags.
+    ip: '198.51.100.23',
+    family: 'ipv4',
+    hostname: null,
+    agree: true,
+    sources: [source('DB-IP', PHOENIX(), net(64496, 'Example Transit'))],
   },
   {
     // No location at all: the empty state, which must read as an answer.
@@ -215,32 +330,12 @@ const FIXTURES: Fixture[] = [
     ip: '2606:4700:4700::1111',
     family: 'ipv6',
     hostname: 'one.one.one.one',
-    agree: true,
+    // A country-level dissent from a source that names no country: the page names it.
+    agree: false,
     sources: [
-      {
-        source: 'MaxMind',
-        location: location({
-          city: 'Brisbane',
-          region: 'Queensland',
-          region_code: 'QLD',
-          subdivisions: [{ name: 'Queensland', code: 'QLD' }],
-          country: 'Australia',
-          country_code: 'AU',
-          continent: 'Oceania',
-          continent_code: 'OC',
-          latitude: -27.4679,
-          longitude: 153.0281,
-          accuracy_radius_km: 1000,
-          timezone: 'Australia/Brisbane',
-          local_time: localTime('Australia/Brisbane'),
-        }),
-        network: {
-          asn: 13335,
-          asn_org: 'CLOUDFLARENET',
-          asn_label: 'AS13335 (CLOUDFLARENET)',
-        },
-        flags: { ...NO_FLAGS, anycast: true },
-      },
+      source('MaxMind', BRISBANE(), net(13335, 'CLOUDFLARENET'), { anycast: true }),
+      source('IPFire', BRISBANE(), net(13335, 'Cloudflare, Inc.'), { anycast: true }),
+      source('ip-location-db', location({ country_code: 'US' })),
     ],
   },
 ];
@@ -263,6 +358,9 @@ export function build(requested: string | null, spin: number): BeaconResponse {
 
   const ip = requested ?? base.ip;
   const primary = base.sources[0];
+  // A fixture's `agree` is about location; the network half follows from the numbers.
+  const networksAgree =
+    new Set(base.sources.map((s) => s.network.asn).filter((a) => a !== null)).size <= 1;
 
   return {
     version: 2,
@@ -272,7 +370,9 @@ export function build(requested: string | null, spin: number): BeaconResponse {
     location: primary ? primary.location : EMPTY_LOCATION,
     network: primary ? primary.network : { asn: null, asn_org: null, asn_label: null },
     flags: primary ? primary.flags : NO_FLAGS,
-    sources_agree: base.agree,
+    sources_agree: base.agree && networksAgree,
+    locations_agree: base.agree,
+    networks_agree: networksAgree,
     sources: base.sources,
     tls: TLS_BLOCK,
     http2: HTTP2_BLOCK,
