@@ -34,6 +34,9 @@ type Config struct {
 	// RIPE reports the country an address is registered to, never where it
 	// is, so on its own it does not count as a GeoIP source.
 	RIPEEnabled bool
+	// Geofeeds are the operators' own locations, found through RIPE's
+	// records, so they need RIPE on; they cover too little to count alone.
+	GeofeedsEnabled bool
 
 	// IPinfo Lite needs a free account's token; set, it enables the source.
 	IPinfoToken string
@@ -88,6 +91,7 @@ func Load() (Config, error) {
 		{"IPFIRE_ENABLED", &cfg.IPFireEnabled},
 		{"IP_LOCATION_DB_ENABLED", &cfg.IPLocationDBEnabled},
 		{"RIPE_ENABLED", &cfg.RIPEEnabled},
+		{"GEOFEEDS_ENABLED", &cfg.GeofeedsEnabled},
 	} {
 		if *s.dst, err = boolEnv(s.env, true); err != nil {
 			return Config{}, err

@@ -243,6 +243,10 @@ disagreed or not.
   dropped rather than dashed: a list has no columns to hold in line.
 - A row no column covers is not drawn at all, and neither is a table. "Registration"
   exists only while MaxMind or RIPE is configured.
+- A place-table source that says nothing past the country gets no column in "Country":
+  its Place already shows the country. That is the geofeeds, which give a city, a region
+  code and a country code — the network's own word — and a seventh column there would
+  squeeze every country name onto two lines.
 - A registry places nothing. RIPE names the country an address is registered to — the
   holder's say, which for a VPN or a leased range is nowhere near the visitor — so it is
   compared with MaxMind's registered country in a table of its own, "Registration", and it
@@ -252,7 +256,8 @@ disagreed or not.
   field.
 
 Country names are shown one way per code — the first source's spelling, or the browser's
-own name for a code no source names. IPFire says "United States of America" where DB-IP
+own name for a code no source names. A region given as a code alone takes the name a
+source uses for the same code in the same country, and stays unnamed otherwise. IPFire says "United States of America" where DB-IP
 says "United States", and comparing the text would present a spelling as a disagreement
 about where the visitor is. The JSON keeps every source's own spelling; the table compares
 places, not orthography.

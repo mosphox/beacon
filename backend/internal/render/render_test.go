@@ -656,6 +656,18 @@ func TestRegistrationFromACodeAlone(t *testing.T) {
 	}
 }
 
+// A geofeed names its region by code alone; the name is null, never "".
+func TestCodeOnlyRegion(t *testing.T) {
+	answers := []geoip.Answer{{Source: "Geofeeds", Record: geoip.Record{
+		City: "Malmö", CountryCode: "SE", Subdivisions: []geoip.Subdivision{{Code: "M"}}, HasData: true,
+	}}}
+	loc := decode(t, New("192.0.2.1", "", answers), SchemaVersion)["location"].(map[string]any)
+	subs := loc["subdivisions"].([]any)
+	if loc["region"] != nil || loc["region_code"] != "M" || len(subs) != 1 || subs[0].(map[string]any)["name"] != nil {
+		t.Errorf("region %v, region_code %v, subdivisions %v; want null, M and one nameless", loc["region"], loc["region_code"], subs)
+	}
+}
+
 func TestV2SourcesSayWhatTheyProvide(t *testing.T) {
 	answers := []geoip.Answer{
 		{Source: "IPFire", Record: geoip.Record{CountryCode: "US", HasData: true},

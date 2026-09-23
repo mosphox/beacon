@@ -121,7 +121,8 @@ const NO_FLAGS = { anycast: false, anonymous_proxy: false, satellite_provider: f
 /**
  * What each source provides, as the backend declares it. The fixtures only ever fill
  * these fields for a source, so the page meets the same mix of precision it does in
- * production: a city from DB-IP, a bare country code from ip-location-db and RIPE.
+ * production: a city from DB-IP, a bare country code from ip-location-db and RIPE, and
+ * codes with a city from the geofeeds.
  */
 const PROVIDES = {
   MaxMind: [
@@ -165,6 +166,7 @@ const PROVIDES = {
   ],
   'ip-location-db': ['country'],
   RIPE: ['registered_country'],
+  Geofeeds: ['city', 'region', 'country'],
 } satisfies Record<string, Provides[]>;
 
 type SourceName = keyof typeof PROVIDES;
@@ -184,16 +186,20 @@ function source(
 ): Source {
   const provides: Provides[] = PROVIDES[name];
   const has = (k: Provides) => provides.includes(k);
+  // These give codes, not names: the page names them.
+  const codesOnly = name === 'ip-location-db' || name === 'Geofeeds';
   return {
     source: name,
     provides,
     location: location({
       city: has('city') ? loc.city : null,
-      region: has('region') ? loc.region : null,
+      region: has('region') && !codesOnly ? loc.region : null,
       region_code: has('region') ? loc.region_code : null,
-      subdivisions: has('region') ? loc.subdivisions : [],
+      subdivisions: has('region')
+        ? loc.subdivisions.map((s) => (codesOnly ? { ...s, name: null } : s))
+        : [],
       postal_code: has('postal_code') ? loc.postal_code : null,
-      country: has('country') && name !== 'ip-location-db' ? loc.country : null,
+      country: has('country') && !codesOnly ? loc.country : null,
       country_code: has('country') ? loc.country_code : null,
       continent: has('continent') ? loc.continent : null,
       continent_code: has('continent') ? loc.continent_code : null,
@@ -296,6 +302,7 @@ const FIXTURES: Fixture[] = [
       source('IPFire', TBILISI(), net(35805, 'JSC "Silknet"')),
       source('ip-location-db', TBILISI()),
       source('RIPE', TBILISI()),
+      source('Geofeeds', TBILISI()),
     ],
   },
   {

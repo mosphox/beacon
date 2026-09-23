@@ -25,7 +25,8 @@ chosen automatically from the request's `User-Agent` and `Accept` headers.
   the output is unchanged; where they disagree every answer is shown and
   attributed. JSON always carries all of them. Beside them, the RIPE Database's
   own records give the country an address is registered to, across RIPE's
-  region.
+  region, and lead to the geofeeds in which networks publish where their own
+  addresses are.
 - **Versioned JSON.** The nested `version: 2` object is the default; the
   original flat shape is still available as `?v=1`.
 - **Own TLS, optionally.** beacon can terminate TLS itself, obtaining and
@@ -181,6 +182,9 @@ A `null` or `false` from a source that provides the field is its answer. From
 one that does not, it means nothing either way: DB-IP Lite has no postal code
 for any address, and ip-location-db has nothing but the country code.
 
+Geofeeds give the region as a code alone, so their `region` is `null` beside a
+`region_code`, and a subdivision's `name` can be `null` for the same reason.
+
 `registered_country` is where an address is registered, not where it is: the
 holder's country in the registry, which for a VPN or a leased range can be far
 from anyone using it. MaxMind provides it, and RIPE provides nothing else — as a
@@ -284,6 +288,7 @@ Misconfiguration is rejected at startup rather than at the first request.
 | `IPFIRE_ENABLED`              | no       | `true`    | Use the IPFire Location database. No account required.            |
 | `IP_LOCATION_DB_ENABLED`      | no       | `true`    | Use ip-location-db's user-country. No account required.           |
 | `RIPE_ENABLED`                | no       | `true`    | Use RIPE's registered countries. No account; locates nothing.     |
+| `GEOFEEDS_ENABLED`            | no       | `true`    | Use the operators' geofeeds RIPE's records link to. Needs RIPE.   |
 | `MAXMIND_ACCOUNT_ID`          | no       | —         | MaxMind account ID. Set together with the license key, or neither.|
 | `MAXMIND_LICENSE_KEY`         | no       | —         | MaxMind license key.                                              |
 | `IPINFO_TOKEN`                | no       | —         | IPinfo token; enables IPinfo Lite. The token alone, not the URL.  |
@@ -537,6 +542,24 @@ real dump holds stand between a broken download and the index. The dumps are
 subject to the
 [RIPE Database Terms and Conditions](https://docs.db.ripe.net/HTML-Terms-And-Conditions).
 
+**Geofeeds** — where networks say their own addresses are: the geofeed files
+(RFC 8805) that operators publish and link from their blocks in the RIPE
+Database (RFC 9632), a country, region and usually a city for each of their
+ranges. The commercial databases fold these into their own data; this is the
+same word first-hand. The RIPE source's daily reading of the database lists the
+links — about 75,000 blocks linking 4,300 files — so this source needs RIPE on.
+The first pass fetches them all, a few minutes and about 50 MB; after that a
+pass asks only for the feeds that are due. A feed is believed only
+for the addresses of the block that links it, and not where a more specific
+block links a feed of its own — without that, anyone could publish a location
+for anyone's addresses. Each feed is kept on disk and fetched on its own
+schedule, weekly or as its publisher's `Expires` or `max-age` says, with a
+conditional request, as RFC 9632 asks of collectors; a feed that fails keeps
+its last good copy for up to a month. Feeds are fetched over HTTPS only and
+only from public addresses: the links come from records anyone can create, and
+one pointing at this host's own network is refused. Feeds carry no licence of
+their own: publishing one is how a network asks location services to use it.
+
 IPinfo's, IPLocate's and ip-location-db's files are MMDB with flat records
 rather than the GeoIP2 layout, and are read with `maxminddb-golang` directly:
 `geoip2-golang` opens them without complaint and returns an empty record for
@@ -707,7 +730,9 @@ in the public domain under the
 
 Registration data from the
 [RIPE Database](https://www.ripe.net/manage-ips-and-asns/db/), subject to the
-[RIPE Database Terms and Conditions](https://docs.db.ripe.net/HTML-Terms-And-Conditions).
+[RIPE Database Terms and Conditions](https://docs.db.ripe.net/HTML-Terms-And-Conditions),
+and locations networks publish as [geofeeds](https://www.rfc-editor.org/rfc/rfc8805),
+found through it.
 
 Every notice also appears in the page's footer, which is where the licences
 require them: attribution is owed to the people using the service, not only to

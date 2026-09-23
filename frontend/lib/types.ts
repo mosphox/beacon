@@ -7,7 +7,8 @@
  */
 
 export type Subdivision = {
-  name: string;
+  /** Null when a source gives only the code, as a geofeed does. */
+  name: string | null;
   code: string | null;
 };
 

@@ -46,8 +46,8 @@ country:        US`
 
 	type object struct{ key, country string }
 	var got []object
-	err := parseRPSL(strings.NewReader(dump), "inetnum", func(key, country []byte) {
-		got = append(got, object{string(key), string(country)})
+	err := parseRPSL(strings.NewReader(dump), "inetnum", func(o *rpslObject) {
+		got = append(got, object{string(o.key), string(o.country)})
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -60,6 +60,47 @@ country:        US`
 	}
 	if fmt.Sprint(got) != fmt.Sprint(want) {
 		t.Errorf("got  %v\nwant %v", got, want)
+	}
+}
+
+// Both forms of a geofeed link are read, the attribute winning over the
+// remark when an object has both, as RFC 9632 requires.
+func TestParseRPSLReadsGeofeedLinks(t *testing.T) {
+	dump := `inetnum:        192.0.2.0 - 192.0.2.255
+remarks:        Geofeed https://old.example/feed.csv
+geofeed:        https://new.example/feed.csv # a comment
+country:        SE
+
+inetnum:        198.51.100.0 - 198.51.100.255
+remarks:        Some other remark
+remarks:        Geofeed https://example.net/geofeed#section
+remarks:        Geofeed https://example.net/second
+
+inetnum:        203.0.113.0 - 203.0.113.255
+remarks:        geofeed https://lower.example/ignored
+
+inetnum:        100.64.0.0 - 100.64.0.255
+
+inetnum:        100.65.0.0 - 100.65.0.255
+geofeed:        https://attribute.example/first
+remarks:        Geofeed https://remark.example/after
+`
+	var got []string
+	err := parseRPSL(strings.NewReader(dump), "inetnum", func(o *rpslObject) {
+		got = append(got, string(o.key)+" -> "+string(o.geofeed))
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{
+		"192.0.2.0 - 192.0.2.255 -> https://new.example/feed.csv",
+		"198.51.100.0 - 198.51.100.255 -> https://example.net/geofeed#section", // the first one, "#" and all
+		"203.0.113.0 - 203.0.113.255 -> ",                                      // the token is case sensitive
+		"100.64.0.0 - 100.64.0.255 -> ",
+		"100.65.0.0 - 100.65.0.255 -> https://attribute.example/first", // after a remark-only object, still the attribute
+	}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Errorf("got\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
 	}
 }
 
@@ -174,13 +215,13 @@ func TestIndexAnswersWithTheInnermostBlock(t *testing.T) {
 		rng := rand.New(rand.NewPCG(uint64(trial), 7))
 		var data ripeIndexData
 
-		addrs4 := span(regions4[trial%len(regions4)], 256)
+		addrs4 := consecutive(regions4[trial%len(regions4)], 256)
 		blocks4 := randomBlocks(rng, addrs4, countries)
-		data.starts4, data.cc4 = flatten(slices.Clone(blocks4))
+		data.starts4, data.cc4 = flatten(slices.Clone(blocks4), compareCC)
 
-		addrs6 := span(regions6[trial%len(regions6)], 256)
+		addrs6 := consecutive(regions6[trial%len(regions6)], 256)
 		blocks6 := randomBlocks(rng, addrs6, countries)
-		data.starts6, data.cc6 = flatten(slices.Clone(blocks6))
+		data.starts6, data.cc6 = flatten(slices.Clone(blocks6), compareCC)
 
 		path := filepath.Join(t.TempDir(), "ripe.idx")
 		if err := data.write(path); err != nil {
@@ -201,8 +242,8 @@ func TestIndexAnswersWithTheInnermostBlock(t *testing.T) {
 	}
 }
 
-// span is n consecutive addresses from base, stopping at the end of the space.
-func span[A ripeAddr[A]](base A, n int) []A {
+// consecutive is n addresses from base, stopping at the end of the space.
+func consecutive[A rangeAddr[A]](base A, n int) []A {
 	addrs := []A{base}
 	for len(addrs) < n {
 		next, ok := addrs[len(addrs)-1].next()
@@ -216,7 +257,7 @@ func span[A ripeAddr[A]](base A, n int) []A {
 
 // randomBlocks draws blocks over addrs, no two with the same range: RIPE
 // cannot hold two, the range being the key.
-func randomBlocks[A ripeAddr[A]](rng *rand.Rand, addrs []A, countries [][2]byte) []ripeBlock[A] {
+func randomBlocks[A rangeAddr[A]](rng *rand.Rand, addrs []A, countries [][2]byte) []ripeBlock[A] {
 	seen := map[[2]int]bool{}
 	var blocks []ripeBlock[A]
 	for range 1 + rng.IntN(24) {
@@ -237,7 +278,7 @@ func randomBlocks[A ripeAddr[A]](rng *rand.Rand, addrs []A, countries [][2]byte)
 }
 
 // expect checks the index against the blocks, address by address.
-func expect[A ripeAddr[A]](idx *ripeIndex, addrs []A, blocks []ripeBlock[A], str func(A) string) error {
+func expect[A rangeAddr[A]](idx *ripeIndex, addrs []A, blocks []ripeBlock[A], str func(A) string) error {
 	for _, a := range addrs {
 		want := innermost(blocks, a)
 		got := idx.lookup(net.ParseIP(str(a))).RegisteredCountryCode
@@ -248,7 +289,7 @@ func expect[A ripeAddr[A]](idx *ripeIndex, addrs []A, blocks []ripeBlock[A], str
 	return nil
 }
 
-func innermost[A ripeAddr[A]](blocks []ripeBlock[A], at A) [2]byte {
+func innermost[A rangeAddr[A]](blocks []ripeBlock[A], at A) [2]byte {
 	var best *ripeBlock[A]
 	for i := range blocks {
 		b := &blocks[i]
@@ -262,7 +303,7 @@ func innermost[A ripeAddr[A]](blocks []ripeBlock[A], at A) [2]byte {
 	if best == nil {
 		return [2]byte{}
 	}
-	return best.cc
+	return best.val
 }
 
 // Neighbours with the same country become one range, and space no block
@@ -275,7 +316,7 @@ func TestFlattenMergesAndSkips(t *testing.T) {
 		{150, 159, de}, // nested, same country: nothing changes
 		{400, 499, nl}, // after a gap
 	}
-	starts, ccs := flatten(blocks)
+	starts, ccs := flatten(blocks, compareCC)
 	got := fmt.Sprint(starts, ccs)
 	want := fmt.Sprint([]v4addr{100, 300, 400, 500}, [][2]byte{de, {}, nl, {}})
 	if got != want {
@@ -336,12 +377,15 @@ country: NL
 
 inetnum: 192.0.2.128 - 192.0.2.255
 country: DE
+geofeed: https://geo.example/feed.csv
 
 inetnum: 198.51.100.0 - 198.51.100.255
 country: EU
+remarks: Geofeed http://plain.example/feed.csv
 `
 	testInet6num = `inet6num: 2001:db8::/32
 country: SE
+remarks: Geofeed https://geo.example/v6.csv
 `
 )
 
@@ -392,6 +436,16 @@ func TestRIPEBuildsTheIndexAndRebuildsOnlyWhenADumpMoves(t *testing.T) {
 	if n := d.getCount(); n != 2 {
 		t.Fatalf("%d dump downloads for the first build, want 2", n)
 	}
+	// The geofeed links are listed beside the index, HTTPS ones only.
+	links, err := os.ReadFile(p.linksPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := strings.Join(strings.Split(strings.TrimSpace(string(links)), "\n")[1:], "\n"),
+		"192.0.2.128\t192.0.2.255\thttps://geo.example/feed.csv\n"+
+			"2001:db8::\t2001:db8:ffff:ffff:ffff:ffff:ffff:ffff\thttps://geo.example/v6.csv"; got != want {
+		t.Errorf("links:\n%s\nwant:\n%s", got, want)
+	}
 
 	// Unchanged: two HEADs, no download.
 	if err := p.Download(); err != errNotModified {
@@ -423,6 +477,19 @@ func TestRIPEBuildsTheIndexAndRebuildsOnlyWhenADumpMoves(t *testing.T) {
 	}
 	if err := p.Download(); err != errNotModified {
 		t.Errorf("check after the rebuild: %v, want errNotModified", err)
+	}
+
+	// An index without its links — one built before they were listed — is
+	// incomplete, and rebuilt even though the dumps have not moved.
+	os.Remove(p.linksPath())
+	if p.FilesPresent() {
+		t.Error("files present without the links")
+	}
+	if err := p.Download(); err != nil {
+		t.Fatalf("Download without the links: %v, want a rebuild", err)
+	}
+	if !p.FilesPresent() {
+		t.Error("the rebuild did not list the links")
 	}
 }
 

@@ -362,8 +362,9 @@ func (resp Response) PlainText() string {
 
 // ---------------------------------------------------------------- json
 
+// subdivision can be a code alone: a geofeed gives "M", not "Skåne County".
 type subdivision struct {
-	Name string  `json:"name"`
+	Name *string `json:"name"`
 	Code *string `json:"code"`
 }
 
@@ -553,7 +554,7 @@ func toLocation(r geoip.Record) location {
 
 	subs := make([]subdivision, 0, len(r.Subdivisions))
 	for _, s := range r.Subdivisions {
-		subs = append(subs, subdivision{Name: s.Name, Code: emptyToNull(s.Code)})
+		subs = append(subs, subdivision{Name: emptyToNull(s.Name), Code: emptyToNull(s.Code)})
 	}
 
 	loc := location{

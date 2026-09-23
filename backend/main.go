@@ -226,6 +226,14 @@ func buildRegistry(cfg config.Config) (*geoip.Registry, error) {
 	if cfg.RIPEEnabled {
 		providers = append(providers, geoip.NewRIPE(cfg.DataDir, client))
 	}
+	// After RIPE, whose reading of the database lists the links to the feeds.
+	if cfg.GeofeedsEnabled {
+		if cfg.RIPEEnabled {
+			providers = append(providers, geoip.NewGeofeeds(cfg.DataDir))
+		} else {
+			log.Println("Geofeeds: off with RIPE, whose records hold the links to the feeds")
+		}
+	}
 
 	return geoip.NewRegistry(cfg.DataDir, time.Duration(cfg.UpdatePeriodHours)*time.Hour, providers...)
 }

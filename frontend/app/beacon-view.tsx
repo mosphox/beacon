@@ -294,8 +294,9 @@ export default function BeaconView() {
  * GeoLite2 EULA requires its notice verbatim. DB-IP Lite is CC BY 4.0 and
  * IPinfo's, IPLocate's and IPFire's data CC BY-SA 4.0, all of which require
  * attribution on the output and not only in the README; IPinfo and IPLocate ask
- * for a link in so many words. ip-location-db is public domain and the RIPE Database's
- * terms ask for no notice, but a source this page shows by name is a source it credits.
+ * for a link in so many words. ip-location-db is public domain, the RIPE Database's
+ * terms ask for no notice and geofeeds carry no licence, but a source this page shows by
+ * name is a source it credits.
  */
 function Colophon() {
   return (
@@ -318,7 +319,9 @@ function Colophon() {
         Country data from <a href="https://github.com/sapics/ip-location-db">ip-location-db</a>,
         in the public domain. Registration data from the{' '}
         <a href="https://www.ripe.net/manage-ips-and-asns/db/">RIPE&nbsp;Database</a>, under
-        its <a href="https://docs.db.ripe.net/HTML-Terms-And-Conditions">terms and conditions</a>.
+        its <a href="https://docs.db.ripe.net/HTML-Terms-And-Conditions">terms and conditions</a>,
+        and locations the networks themselves publish as{' '}
+        <a href="https://www.rfc-editor.org/rfc/rfc8805">geofeeds</a>, found through it.
       </p>
     </footer>
   );
@@ -466,6 +469,9 @@ const ADMIN_FIELDS: Field<Location>[] = [
   },
 ];
 
+/** What the Country table says beyond the country itself. */
+const COUNTRY_EXTRAS: Provides[] = ['continent', 'in_european_union'];
+
 const REGISTRY_FIELDS: Field<Location>[] = [
   {
     // The name alone, as for Country. RIPE gives only the code; withCountryNames names it.
@@ -528,8 +534,12 @@ const REGIONS = new Intl.DisplayNames(['en'], { type: 'region' });
  * DB-IP says "United States" — and ip-location-db and RIPE give only the code. Compared as
  * text, a spelling would read as a disagreement about where you are. The response keeps
  * each source's own spelling; this is only how they are set side by side.
+ *
+ * A region given by code alone, as geofeeds give it, takes the name a source uses for the
+ * same code in the same country. The browser has no names for regions, so where no source
+ * names it, it goes unnamed.
  */
-function withCountryNames(sources: Source[]): Location[] {
+function withPlaceNames(sources: Source[]): Location[] {
   const names = new Map<string, string>();
   const learn = (code: string | null, name: string | null) => {
     if (code && name && !names.has(code)) names.set(code, name);
@@ -537,15 +547,25 @@ function withCountryNames(sources: Source[]): Location[] {
   for (const { location: l } of sources) learn(l.country_code, l.country);
   for (const { location: l } of sources) learn(l.registered_country_code, l.registered_country);
 
+  const regions = new Map<string, string>();
+  const regionKey = (l: Location) =>
+    l.country_code && l.region_code ? `${l.country_code}-${l.region_code}` : null;
+  for (const { location: l } of sources) {
+    const key = regionKey(l);
+    if (key && l.region && !regions.has(key)) regions.set(key, l.region);
+  }
+
   const nameOf = (code: string) => names.get(code) ?? regionName(code);
   return sources.map(({ location: l }) => {
     const country = l.country_code ? nameOf(l.country_code) : l.country;
     const registered = l.registered_country_code
       ? nameOf(l.registered_country_code)
       : l.registered_country;
-    return country === l.country && registered === l.registered_country
+    const key = regionKey(l);
+    const region = l.region ?? (key ? (regions.get(key) ?? null) : null);
+    return country === l.country && registered === l.registered_country && region === l.region
       ? l
-      : { ...l, country, registered_country: registered };
+      : { ...l, country, registered_country: registered, region };
   });
 }
 
@@ -591,7 +611,7 @@ function LocationSection({ data }: { data: BeaconResponse }) {
     );
   }
 
-  const places = withCountryNames(sources);
+  const places = withPlaceNames(sources);
   const columns: Column[] = sources.map((s, i) => ({
     name: s.source,
     location: places[i],
@@ -604,6 +624,12 @@ function LocationSection({ data }: { data: BeaconResponse }) {
   const fine = columns.filter((c) => PLACE_KEYS.some((k) => c.provides.includes(k)));
   const coarse = columns.filter((c) => !fine.includes(c) && c.provides.includes('country'));
   const placing = columns.filter((c) => fine.includes(c) || coarse.includes(c));
+  // A place-table source that knows nothing past the country — the geofeeds — already
+  // shows it in its Place; a seventh column here would only repeat it, and squeeze
+  // every country name onto two lines.
+  const countries = placing.filter(
+    (c) => !fine.includes(c) || COUNTRY_EXTRAS.some((k) => c.provides.includes(k)),
+  );
   const registries = columns.filter((c) => c.provides.includes('registered_country'));
   const multiple = placing.length > 1;
 
@@ -626,8 +652,8 @@ function LocationSection({ data }: { data: BeaconResponse }) {
         {sideBySide(PLACE_FIELDS, fine)}
       </Group>
 
-      {placing.length > 0 ? (
-        <Group caption="Country">{sideBySide(ADMIN_FIELDS, placing)}</Group>
+      {countries.length > 0 ? (
+        <Group caption="Country">{sideBySide(ADMIN_FIELDS, countries)}</Group>
       ) : null}
 
       {registries.length > 0 ? (

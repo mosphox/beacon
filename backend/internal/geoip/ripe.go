@@ -8,13 +8,11 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"math"
 	"net"
 	"net/http"
 	"net/netip"
 	"os"
 	"path/filepath"
-	"slices"
 	"sort"
 	"time"
 )
@@ -99,7 +97,13 @@ func (p *RIPE) Provides() Fields { return FieldRegisteredCountry }
 
 func (p *RIPE) path() string { return filepath.Join(p.dataDir, "ripe-registry.idx") }
 
-func (p *RIPE) FilesPresent() bool { return filesPresent(p.path()) }
+// linksPath is where the blocks that link a geofeed are listed, for the
+// Geofeeds source: RIPE's records are where operators publish those links, and
+// this source is what reads them. The file is written with the index, and a
+// source without it is not complete.
+func (p *RIPE) linksPath() string { return geofeedLinksPath(p.dataDir) }
+
+func (p *RIPE) FilesPresent() bool { return filesPresent(p.path(), p.linksPath()) }
 
 func (p *RIPE) Lookup(ip net.IP) Record { return p.dbs.lookup(ip) }
 
@@ -119,8 +123,8 @@ func (p *RIPE) Close() { p.dbs.closeAll() }
 func (p *RIPE) MinRefresh() time.Duration { return 0 }
 
 func (p *RIPE) Download() error {
-	dest := p.path()
-	removeStaleTemps(dest)
+	dest, linksDest := p.path(), p.linksPath()
+	removeStaleTemps(dest, linksDest)
 
 	head4, err := headModified(p.client, p.url4, "", "")
 	if err != nil {
@@ -136,11 +140,13 @@ func (p *RIPE) Download() error {
 
 	started := time.Now()
 	var idx ripeIndexData
+	links := newLinksWriter()
 
 	blocks4 := make([]ripeBlock[v4addr], 0, p.reserve4)
-	idx.from4, err = p.stream(p.url4, "inetnum", func(key, country []byte) {
-		if start, end, ok := parseRange4(key); ok {
-			blocks4 = append(blocks4, ripeBlock[v4addr]{start, end, ccOf(country)})
+	idx.from4, err = p.stream(p.url4, "inetnum", func(o *rpslObject) {
+		if start, end, ok := parseRange4(o.key); ok {
+			blocks4 = append(blocks4, ripeBlock[v4addr]{start, end, ccOf(o.country)})
+			links.add(start.addr(), end.addr(), o.geofeed)
 		}
 	})
 	if err != nil {
@@ -150,13 +156,14 @@ func (p *RIPE) Download() error {
 	if n4 < p.min4 {
 		return fmt.Errorf("RIPE: inetnum dump yielded %d blocks, fewer than %d; not installed", n4, p.min4)
 	}
-	idx.starts4, idx.cc4 = flatten(blocks4)
+	idx.starts4, idx.cc4 = flatten(blocks4, compareCC)
 	blocks4 = nil // released before the IPv6 pass, which peaks separately
 
 	blocks6 := make([]ripeBlock[v6addr], 0, p.reserve6)
-	idx.from6, err = p.stream(p.url6, "inet6num", func(key, country []byte) {
-		if start, end, ok := parsePrefix6(key); ok {
-			blocks6 = append(blocks6, ripeBlock[v6addr]{start, end, ccOf(country)})
+	idx.from6, err = p.stream(p.url6, "inet6num", func(o *rpslObject) {
+		if start, end, ok := parsePrefix6(o.key); ok {
+			blocks6 = append(blocks6, ripeBlock[v6addr]{start, end, ccOf(o.country)})
+			links.add(start.addr(), end.addr(), o.geofeed)
 		}
 	})
 	if err != nil {
@@ -166,7 +173,7 @@ func (p *RIPE) Download() error {
 	if n6 < p.min6 {
 		return fmt.Errorf("RIPE: inet6num dump yielded %d blocks, fewer than %d; not installed", n6, p.min6)
 	}
-	idx.starts6, idx.cc6 = flatten(blocks6)
+	idx.starts6, idx.cc6 = flatten(blocks6, compareCC)
 
 	tmp := dest + ".tmp"
 	if err := idx.write(tmp); err != nil {
@@ -179,11 +186,17 @@ func (p *RIPE) Download() error {
 		return fmt.Errorf("RIPE: built index unreadable: %w", err)
 	}
 	check.close()
-	if err := install([]pendingFile{{tmp: tmp, dest: dest}}); err != nil {
+	linksTmp := linksDest + ".tmp"
+	if err := os.WriteFile(linksTmp, links.bytes(), 0o644); err != nil {
+		os.Remove(tmp)
+		os.Remove(linksTmp)
+		return fmt.Errorf("RIPE: write geofeed links: %w", err)
+	}
+	if err := install([]pendingFile{{tmp: tmp, dest: dest}, {tmp: linksTmp, dest: linksDest}}); err != nil {
 		return err
 	}
-	log.Printf("RIPE: indexed %d IPv4 and %d IPv6 blocks as %d and %d ranges in %s",
-		n4, n6, len(idx.starts4), len(idx.starts6), time.Since(started).Round(time.Second))
+	log.Printf("RIPE: indexed %d IPv4 and %d IPv6 blocks as %d and %d ranges in %s; %d link a geofeed",
+		n4, n6, len(idx.starts4), len(idx.starts6), time.Since(started).Round(time.Second), links.n)
 	return nil
 }
 
@@ -192,7 +205,7 @@ func (p *RIPE) Download() error {
 // changed. It opens the whole index rather than reading the stamps alone: a
 // damaged one must be rebuilt, not kept until tomorrow's dump.
 func (p *RIPE) current(dest string, head4, head6 time.Time) bool {
-	if head4.IsZero() || head6.IsZero() {
+	if head4.IsZero() || head6.IsZero() || !filesPresent(p.linksPath()) {
 		return false
 	}
 	idx, err := openRIPEIndex(dest)
@@ -204,9 +217,9 @@ func (p *RIPE) current(dest string, head4, head6 time.Time) bool {
 }
 
 // stream reads a gzipped RPSL dump as it arrives and calls fn with each
-// object's key and first country, both only valid for the call. It returns the
-// dump's Last-Modified, which the index records as what it was built from.
-func (p *RIPE) stream(rawURL, class string, fn func(key, country []byte)) (time.Time, error) {
+// object, which is only valid for the call. It returns the dump's
+// Last-Modified, which the index records as what it was built from.
+func (p *RIPE) stream(rawURL, class string, fn func(*rpslObject)) (time.Time, error) {
 	resp, err := httpGet(p.client, rawURL, "", "")
 	if err != nil {
 		return time.Time{}, err
@@ -225,23 +238,48 @@ func (p *RIPE) stream(rawURL, class string, fn func(key, country []byte)) (time.
 	return lm, nil
 }
 
+// rpslObject is what beacon reads from one RPSL object: its key, its first
+// country, and the geofeed it links, if any.
+type rpslObject struct {
+	key, country, geofeed []byte
+}
+
+var (
+	countryAttr = []byte("country:")
+	geofeedAttr = []byte("geofeed:")
+	remarksAttr = []byte("remarks:")
+	// The older form of a geofeed link, which RFC 9632 still requires readers
+	// to accept, token case and all.
+	geofeedRemark = []byte("Geofeed ")
+)
+
 // parseRPSL walks RPSL objects — attribute lines, a blank line between objects
-// — and reports the key and first country of each object of the given class.
-// Comments after "#" are dropped. A read error, including gzip finding the
-// stream truncated or corrupt, ends the walk with that error.
-func parseRPSL(r io.Reader, class string, fn func(key, country []byte)) error {
+// — and reports each object of the given class. Comments after "#" are
+// dropped. A read error, including gzip finding the stream truncated or
+// corrupt, ends the walk with that error.
+//
+// An object's geofeed link is its geofeed: attribute, or failing that its
+// first "remarks: Geofeed <url>"; RFC 9632 has the attribute win when an
+// object carries both.
+func parseRPSL(r io.Reader, class string, fn func(*rpslObject)) error {
 	sc := bufio.NewScanner(r)
 	sc.Buffer(make([]byte, 0, 64<<10), 1<<20)
 	classPrefix := []byte(class + ":")
-	countryPrefix := []byte("country:")
 
-	var key, country []byte
+	var o rpslObject
+	var remarked []byte
 	in := false
 	flush := func() {
-		if in && len(key) > 0 {
-			fn(key, country)
+		if in && len(o.key) > 0 {
+			// A copy, so the remark's buffer never becomes the attribute's.
+			out := o
+			if len(out.geofeed) == 0 {
+				out.geofeed = remarked
+			}
+			fn(&out)
 		}
-		key, country, in = key[:0], country[:0], false
+		o.key, o.country, o.geofeed, remarked = o.key[:0], o.country[:0], o.geofeed[:0], remarked[:0]
+		in = false
 	}
 	for sc.Scan() {
 		line := sc.Bytes()
@@ -251,9 +289,17 @@ func parseRPSL(r io.Reader, class string, fn func(key, country []byte)) error {
 		case bytes.HasPrefix(line, classPrefix):
 			flush()
 			in = true
-			key = append(key, attrValue(line[len(classPrefix):])...)
-		case in && len(country) == 0 && bytes.HasPrefix(line, countryPrefix):
-			country = append(country, attrValue(line[len(countryPrefix):])...)
+			o.key = append(o.key, attrValue(line[len(classPrefix):])...)
+		case !in:
+		case len(o.country) == 0 && bytes.HasPrefix(line, countryAttr):
+			o.country = append(o.country, attrValue(line[len(countryAttr):])...)
+		case len(o.geofeed) == 0 && bytes.HasPrefix(line, geofeedAttr):
+			o.geofeed = append(o.geofeed, firstField(line[len(geofeedAttr):])...)
+		case len(remarked) == 0 && bytes.HasPrefix(line, remarksAttr):
+			// Not attrValue: a URL may hold a "#".
+			if v := bytes.TrimSpace(line[len(remarksAttr):]); bytes.HasPrefix(v, geofeedRemark) {
+				remarked = append(remarked, firstField(v[len(geofeedRemark):])...)
+			}
 		}
 	}
 	if err := sc.Err(); err != nil {
@@ -263,12 +309,27 @@ func parseRPSL(r io.Reader, class string, fn func(key, country []byte)) error {
 	return nil
 }
 
+// firstField is the first whitespace-separated word of v.
+func firstField(v []byte) []byte {
+	f := bytes.Fields(v)
+	if len(f) == 0 {
+		return nil
+	}
+	return f[0]
+}
+
 func attrValue(v []byte) []byte {
 	if i := bytes.IndexByte(v, '#'); i >= 0 {
 		v = v[:i]
 	}
 	return bytes.TrimSpace(v)
 }
+
+// ripeBlock is a registration: an address range and the country recorded
+// for it.
+type ripeBlock[A rangeAddr[A]] = span[A, [2]byte]
+
+func compareCC(a, b [2]byte) int { return bytes.Compare(a[:], b[:]) }
 
 // ccOf keeps a real country code and drops everything else — RIPE's "EU", for
 // a block registered to the whole region, included.
@@ -330,143 +391,6 @@ func parsePrefix6(key []byte) (start, end v6addr, ok bool) {
 	b := pfx.Addr().As16()
 	start = v6addr{be.Uint64(b[:8]), be.Uint64(b[8:])}
 	return start, start.lastIn(pfx.Bits()), true
-}
-
-// ---------------------------------------------------------------- flattening
-
-// ripeAddr is an address the index can order and step through: 32-bit for
-// IPv4 and 128-bit for IPv6, kept apart so four million IPv4 blocks cost four
-// bytes an address rather than sixteen.
-type ripeAddr[A any] interface {
-	comparable
-	less(A) bool
-	next() (A, bool) // false past the last address
-}
-
-type v4addr uint32
-
-func (a v4addr) less(b v4addr) bool { return a < b }
-
-func (a v4addr) next() (v4addr, bool) {
-	if a == math.MaxUint32 {
-		return 0, false
-	}
-	return a + 1, true
-}
-
-type v6addr struct{ hi, lo uint64 }
-
-func (a v6addr) less(b v6addr) bool { return a.hi < b.hi || a.hi == b.hi && a.lo < b.lo }
-
-func (a v6addr) next() (v6addr, bool) {
-	if a.lo != math.MaxUint64 {
-		return v6addr{a.hi, a.lo + 1}, true
-	}
-	if a.hi != math.MaxUint64 {
-		return v6addr{a.hi + 1, 0}, true
-	}
-	return v6addr{}, false
-}
-
-// lastIn is the last address of the prefix of the given length starting at a.
-func (a v6addr) lastIn(bits int) v6addr {
-	switch host := 128 - bits; {
-	case host >= 128:
-		return v6addr{math.MaxUint64, math.MaxUint64}
-	case host >= 64:
-		return v6addr{a.hi | (1<<(host-64) - 1), math.MaxUint64}
-	default:
-		return v6addr{a.hi, a.lo | (1<<host - 1)}
-	}
-}
-
-type ripeBlock[A ripeAddr[A]] struct {
-	start, end A // inclusive
-	cc         [2]byte
-}
-
-// flatten turns nested blocks into a partition of the address space: sorted
-// starts, each beginning a stretch that takes its country from the innermost
-// block over it — zero bytes where there is no block, or where the innermost
-// one names no single country. The innermost block is the registration for
-// those addresses; an "EU" assignment inside a German allocation is not
-// German. Adjacent stretches with the same country are merged, which is most
-// of the saving: an allocation holding a thousand same-country assignments
-// becomes one stretch.
-//
-// Blocks are ordered by start, outermost first, and swept with a stack of the
-// ones still open. RIPE's hierarchy nests blocks properly; one that merely
-// overlaps another is treated as the more specific over the overlap, as a
-// later, narrower registration would imply. Two blocks with the same range
-// cannot both exist, the range being an object's key; were they to, the
-// order below still settles it the same way every time.
-func flatten[A ripeAddr[A]](blocks []ripeBlock[A]) (starts []A, ccs [][2]byte) {
-	slices.SortFunc(blocks, func(x, y ripeBlock[A]) int {
-		switch {
-		case x.start.less(y.start):
-			return -1
-		case y.start.less(x.start):
-			return 1
-		case y.end.less(x.end): // same start: the wider block is the outer one
-			return -1
-		case x.end.less(y.end):
-			return 1
-		}
-		return bytes.Compare(x.cc[:], y.cc[:])
-	})
-
-	var none [2]byte
-	emit := func(at A, cc [2]byte) {
-		n := len(starts)
-		if n > 0 && starts[n-1] == at {
-			// Nothing lies between: the later, more specific claim replaces it.
-			ccs[n-1] = cc
-			if n > 1 && ccs[n-2] == cc {
-				starts, ccs = starts[:n-1], ccs[:n-1]
-			}
-			return
-		}
-		if n > 0 && ccs[n-1] == cc {
-			return // continues the stretch before
-		}
-		if n == 0 && cc == none {
-			return // nothing to record before the first block
-		}
-		starts = append(starts, at)
-		ccs = append(ccs, cc)
-	}
-
-	var open []ripeBlock[A]
-	// closeUntil ends every open block that ends before limit, or every one.
-	closeUntil := func(limit A, all bool) {
-		for len(open) > 0 && (all || open[len(open)-1].end.less(limit)) {
-			top := open[len(open)-1]
-			open = open[:len(open)-1]
-			at, more := top.end.next()
-			if !more {
-				open = open[:0] // the end of the address space
-				return
-			}
-			// Blocks beneath that ended no later than this one are over too.
-			for len(open) > 0 && open[len(open)-1].end.less(at) {
-				open = open[:len(open)-1]
-			}
-			if len(open) > 0 {
-				emit(at, open[len(open)-1].cc)
-			} else {
-				emit(at, none)
-			}
-		}
-	}
-
-	for _, b := range blocks {
-		closeUntil(b.start, false)
-		emit(b.start, b.cc)
-		open = append(open, b)
-	}
-	var zero A
-	closeUntil(zero, true)
-	return starts, ccs
 }
 
 // --------------------------------------------------------------------- index

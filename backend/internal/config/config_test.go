@@ -64,9 +64,14 @@ func TestNoAccountSourcesAreOnByDefault(t *testing.T) {
 			cfg.DBIPEnabled, cfg.IPLocateEnabled, cfg.IPFireEnabled, cfg.IPLocationDBEnabled, cfg.RIPEEnabled)
 	}
 
+	if !cfg.GeofeedsEnabled {
+		t.Error("defaults: geofeeds off, want on")
+	}
+
 	t.Setenv("RIPE_ENABLED", "false")
-	if cfg, err := Load(); err != nil || cfg.RIPEEnabled {
-		t.Errorf("RIPE_ENABLED=false: RIPE %v, err %v", cfg.RIPEEnabled, err)
+	t.Setenv("GEOFEEDS_ENABLED", "false")
+	if cfg, err := Load(); err != nil || cfg.RIPEEnabled || cfg.GeofeedsEnabled {
+		t.Errorf("switched off: RIPE %v, geofeeds %v, err %v", cfg.RIPEEnabled, cfg.GeofeedsEnabled, err)
 	}
 }
 

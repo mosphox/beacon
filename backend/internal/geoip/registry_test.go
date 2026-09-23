@@ -305,6 +305,7 @@ func TestProvidersDeclareWhatTheyCover(t *testing.T) {
 		{NewIPinfo("t", "", nil), FieldCountry | FieldContinent | FieldASNOrg, FieldCity | FieldEuropeanUnion | FieldAnycast},
 		// A registration, never a location.
 		{NewRIPE("", nil), FieldRegisteredCountry, FieldCountry | FieldContinent | FieldCity | FieldASN},
+		{NewGeofeeds(""), FieldCity | FieldRegion | FieldCountry, FieldCoordinates | FieldContinent | FieldASN | FieldRegisteredCountry},
 	} {
 		got := tc.p.Provides()
 		if got&^AllFields != 0 {
