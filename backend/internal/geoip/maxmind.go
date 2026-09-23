@@ -16,7 +16,10 @@ import (
 )
 
 const (
-	maxmindBaseURL = "https://download.maxmind.com/app/geoip_download"
+	// The permalinks MaxMind's documentation gives, authenticated with the
+	// account ID and licence key as basic auth — which keeps the key out of the
+	// URL, and so out of logs and the Referer of the redirect to storage.
+	maxmindBaseURL = "https://download.maxmind.com/geoip/databases"
 
 	mmCountryEdition = "GeoLite2-Country"
 	mmCityEdition    = "GeoLite2-City"
@@ -30,6 +33,7 @@ type MaxMind struct {
 	licenseKey string
 	dataDir    string
 	client     *http.Client
+	baseURL    string
 
 	dbs swappable
 }
@@ -40,6 +44,7 @@ func NewMaxMind(accountID, licenseKey, dataDir string, client *http.Client) *Max
 		licenseKey: licenseKey,
 		dataDir:    dataDir,
 		client:     client,
+		baseURL:    maxmindBaseURL,
 	}
 }
 
@@ -69,27 +74,50 @@ func (m *MaxMind) Open() error {
 
 func (m *MaxMind) Close() { m.dbs.closeAll() }
 
-// Download fetches all three editions before installing any of them, so a
-// failure on the last one cannot leave a mixed-vintage set on disk.
+// Download asks when each edition's latest build was published and fetches
+// only the editions that have moved. The asking is a HEAD request, which
+// MaxMind does not count against the daily download limit; every GET counts.
+// City and Country are rebuilt twice a week and ASN most days, so fetching all
+// three on every refresh spent the limit on data already here.
+//
+// Whatever is fetched is downloaded and verified before any of it is
+// installed, so a failure part-way cannot leave half a refresh on disk.
 func (m *MaxMind) Download() error {
-	removeStaleTemps(sliceOf(m.paths())...)
+	country, city, asn := m.paths()
+	removeStaleTemps(country, city, asn)
 
 	var pending []pendingFile
-	for _, edition := range []string{mmCountryEdition, mmCityEdition, mmASNEdition} {
-		p, err := m.fetchEdition(edition)
+	for _, ed := range []struct{ edition, dest string }{
+		{mmCountryEdition, country},
+		{mmCityEdition, city},
+		{mmASNEdition, asn},
+	} {
+		rawURL := fmt.Sprintf("%s/%s/download?suffix=tar.gz", m.baseURL, ed.edition)
+		released, err := headModified(m.client, rawURL, m.accountID, m.licenseKey)
 		if err != nil {
 			cleanupPending(pending)
 			return err
 		}
+		if isRelease(ed.dest, released) {
+			continue
+		}
+		p, err := m.fetchEdition(rawURL)
+		if err != nil {
+			cleanupPending(pending)
+			return err
+		}
+		for _, f := range p {
+			markRelease(f.tmp, released)
+		}
 		pending = append(pending, p...)
+	}
+	if len(pending) == 0 {
+		return errNotModified
 	}
 	return install(pending)
 }
 
-func (m *MaxMind) fetchEdition(edition string) ([]pendingFile, error) {
-	rawURL := fmt.Sprintf("%s?edition_id=%s&license_key=%s&suffix=tar.gz",
-		maxmindBaseURL, edition, m.licenseKey)
-
+func (m *MaxMind) fetchEdition(rawURL string) ([]pendingFile, error) {
 	hasher := sha256.New()
 	pending, err := m.fetchArchive(rawURL, hasher)
 	if err != nil {
@@ -197,8 +225,8 @@ func checksumURL(rawURL string) string {
 	return rawURL + "?suffix=tar.gz.sha256"
 }
 
-// MaxMind publishes on a fixed cadence; there is no month-stamped URL to fall
-// back to, so this is just a marker for the registry's staleness check.
+// Checking costs three HEAD requests, which MaxMind does not count; only an
+// edition that has moved is downloaded.
 func (m *MaxMind) MinRefresh() time.Duration { return 0 }
 
 func sliceOf(a, b, c string) []string { return []string{a, b, c} }

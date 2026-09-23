@@ -122,11 +122,11 @@ func (p *RIPE) Download() error {
 	dest := p.path()
 	removeStaleTemps(dest)
 
-	head4, err := p.lastModified(p.url4)
+	head4, err := headModified(p.client, p.url4, "", "")
 	if err != nil {
 		return err
 	}
-	head6, err := p.lastModified(p.url6)
+	head6, err := headModified(p.client, p.url6, "", "")
 	if err != nil {
 		return err
 	}
@@ -188,8 +188,9 @@ func (p *RIPE) Download() error {
 }
 
 // current reports whether the installed index was built from dumps no older
-// than the ones published. It opens the whole index rather than reading the
-// stamps alone: a damaged one must be rebuilt, not kept until tomorrow's dump.
+// than the ones published; a dump with no Last-Modified always reads as
+// changed. It opens the whole index rather than reading the stamps alone: a
+// damaged one must be rebuilt, not kept until tomorrow's dump.
 func (p *RIPE) current(dest string, head4, head6 time.Time) bool {
 	if head4.IsZero() || head6.IsZero() {
 		return false
@@ -200,28 +201,6 @@ func (p *RIPE) current(dest string, head4, head6 time.Time) bool {
 	}
 	defer idx.close()
 	return !head4.After(idx.from4) && !head6.After(idx.from6)
-}
-
-// lastModified asks for a dump's Last-Modified without fetching it. A server
-// that gives none gets a zero time, which always reads as changed.
-func (p *RIPE) lastModified(rawURL string) (time.Time, error) {
-	req, err := http.NewRequest(http.MethodHead, rawURL, nil)
-	if err != nil {
-		return time.Time{}, err
-	}
-	resp, err := p.client.Do(req)
-	if err != nil {
-		return time.Time{}, fmt.Errorf("RIPE: %s: %w", rawURL, sanitizeURLErr(err))
-	}
-	resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return time.Time{}, fmt.Errorf("RIPE: %s: status %d", rawURL, resp.StatusCode)
-	}
-	t, err := http.ParseTime(resp.Header.Get("Last-Modified"))
-	if err != nil {
-		return time.Time{}, nil
-	}
-	return t, nil
 }
 
 // stream reads a gzipped RPSL dump as it arrives and calls fn with each

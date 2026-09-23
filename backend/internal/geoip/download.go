@@ -176,6 +176,62 @@ func httpGetSince(client *http.Client, rawURL string, since time.Time) (*http.Re
 	}
 }
 
+// headModified asks when a file was last published, without downloading it: a
+// HEAD request, which is what MaxMind asks clients to check with and does not
+// count against its download limit. A 404 or 403 is errNotFound, as for a GET.
+// A server that sends no Last-Modified gives the zero time, which matches no
+// installed file, so the file is downloaded.
+func headModified(client *http.Client, rawURL, user, pass string) (time.Time, error) {
+	req, err := http.NewRequest(http.MethodHead, rawURL, nil)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("build request for %s: %w", redactURL(rawURL), sanitizeURLErr(err))
+	}
+	if user != "" || pass != "" {
+		req.SetBasicAuth(user, pass)
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("check %s: %w", redactURL(rawURL), sanitizeURLErr(err))
+	}
+	resp.Body.Close()
+	switch resp.StatusCode {
+	case http.StatusOK:
+	case http.StatusNotFound, http.StatusForbidden:
+		return time.Time{}, fmt.Errorf("check %s: status %d: %w", redactURL(rawURL), resp.StatusCode, errNotFound)
+	default:
+		return time.Time{}, fmt.Errorf("check %s: status %d", redactURL(rawURL), resp.StatusCode)
+	}
+	released, err := http.ParseTime(resp.Header.Get("Last-Modified"))
+	if err != nil {
+		return time.Time{}, nil
+	}
+	return released, nil
+}
+
+// markRelease records which release a downloaded file is, as its modification
+// time: the Last-Modified it was published under. Renaming it into place keeps
+// the time, so the installed file says which release it holds.
+func markRelease(path string, released time.Time) {
+	if released.IsZero() {
+		return
+	}
+	if err := os.Chtimes(path, released, released); err != nil {
+		log.Printf("record release time of %s: %v", filepath.Base(path), err)
+	}
+}
+
+// isRelease reports whether the installed file is the release published at
+// released. The times match exactly for a file markRelease stamped; one
+// installed any other way carries its write time, never matches, and is
+// replaced once.
+func isRelease(path string, released time.Time) bool {
+	if released.IsZero() {
+		return false
+	}
+	fi, err := os.Stat(path)
+	return err == nil && fi.ModTime().Unix() == released.Unix()
+}
+
 // fetchText reads a small text resource: a published checksum, a pointer file.
 // The cap keeps a misbehaving server from streaming an unbounded body into
 // memory.
@@ -284,8 +340,9 @@ func sanitizeURLErr(err error) error {
 	return err
 }
 
-// redactURL removes credentials carried in a query string — MaxMind's licence
-// key, IPinfo's token — from anything that reaches a log.
+// redactURL removes credentials a query string can carry — IPinfo's token, or
+// a MaxMind licence key in the legacy download URL — from anything that
+// reaches a log.
 func redactURL(raw string) string {
 	u, err := url.Parse(raw)
 	if err != nil {

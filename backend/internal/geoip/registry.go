@@ -20,11 +20,13 @@ const (
 	downloadTimeout  = 5 * time.Minute
 	fallbackInterval = 12 * time.Hour
 
-	// retryInterval is how soon a source that could not come up is tried again.
-	// The refresh interval suits data that is merely ageing; a source that is
-	// missing altogether should not stay missing for twelve hours over one
-	// failed download.
-	retryInterval = 15 * time.Minute
+	// checkInterval is how often the refresh loop looks over every source, to
+	// bring up one that is not answering yet and refresh one that is due. Due
+	// is each source's own clock — its stamp against its interval — so looking
+	// often costs a few small file reads and holds each source to its interval.
+	// Waking once per interval instead, a source stamped just after one wake-up
+	// was a moment short of due at the next, and waited out two intervals.
+	checkInterval = 15 * time.Minute
 )
 
 // Provider is one source of GeoIP data. Each owns its own files in the data
@@ -48,8 +50,12 @@ type Provider interface {
 type Registry struct {
 	dataDir  string
 	interval time.Duration
-	retry    time.Duration
+	check    time.Duration
 	rank     map[Provider]int // priority: position in the list given to NewRegistry
+
+	// held is the wait imposed on each source that failed, touched only by
+	// NewRegistry and then by the refresh loop.
+	held map[Provider]holdoff
 
 	mu        sync.RWMutex
 	providers []Provider // answering lookups, in priority order
@@ -64,8 +70,9 @@ func NewRegistry(dataDir string, interval time.Duration, providers ...Provider) 
 	r := &Registry{
 		dataDir:  dataDir,
 		interval: interval,
-		retry:    retryInterval,
+		check:    checkInterval,
 		rank:     make(map[Provider]int, len(providers)),
+		held:     make(map[Provider]holdoff),
 	}
 	for i, p := range providers {
 		r.rank[p] = i
@@ -110,7 +117,7 @@ func NewRegistry(dataDir string, interval time.Duration, providers ...Provider) 
 // start brings p up now, or sets it aside for the refresh loop to retry.
 func (r *Registry) start(p Provider) {
 	if err := r.bring(p); err != nil {
-		log.Printf("%s: unavailable, will retry: %v", p.Name(), err)
+		log.Printf("%s: unavailable, next try in %s: %v", p.Name(), r.failed(p), err)
 		r.pending = append(r.pending, p)
 		return
 	}
@@ -223,6 +230,19 @@ func (r *Registry) stamp(p Provider) {
 	}
 }
 
+// every is how old a source's data may get before it is refreshed: the
+// configured interval, or the source's own floor where that is longer.
+func (r *Registry) every(p Provider) time.Duration {
+	every := r.interval
+	if every <= 0 {
+		every = fallbackInterval
+	}
+	if floor := p.MinRefresh(); floor > every {
+		every = floor
+	}
+	return every
+}
+
 func (r *Registry) needsUpdate(p Provider) bool {
 	if !p.FilesPresent() {
 		return true
@@ -235,55 +255,68 @@ func (r *Registry) needsUpdate(p Provider) bool {
 	if err != nil {
 		return true
 	}
-
-	age := time.Since(time.Unix(ts, 0))
-	every := r.interval
-	if floor := p.MinRefresh(); floor > every {
-		every = floor
-	}
-	return age > every
+	return time.Since(time.Unix(ts, 0)) > r.every(p)
 }
 
-// RefreshLoop brings up sources that are not answering yet — at once, then
-// every retry interval — and re-checks every answering source on the refresh
-// interval. A failure is logged and retried; open readers keep serving.
-func (r *Registry) RefreshLoop(ctx context.Context) {
-	interval := r.interval
-	if interval <= 0 {
-		interval = fallbackInterval
-	}
-	refresh := time.NewTicker(interval)
-	defer refresh.Stop()
-	retry := time.NewTicker(r.retry)
-	defer retry.Stop()
+// holdoff is how long a failing source is left alone. After a failure it
+// waits one check interval, and each failure after that doubles the wait, up
+// to the source's refresh interval. Downloads count against limits — IPinfo
+// allows ten a day, and MaxMind counts every one — and a source that is down
+// should not be asked four times an hour until it comes back.
+type holdoff struct {
+	failures int
+	until    time.Time
+}
 
-	r.retryPending()
-	r.refreshLive()
+// failed records a failure of p and returns how long p is now left alone.
+func (r *Registry) failed(p Provider) time.Duration {
+	h := r.held[p]
+	wait := r.check << min(h.failures, 20)
+	if every := r.every(p); wait <= 0 || wait > every {
+		wait = every
+	}
+	h.failures++
+	h.until = time.Now().Add(wait)
+	r.held[p] = h
+	return wait
+}
+
+// holding reports whether p failed recently enough to be left alone for now.
+func (r *Registry) holding(p Provider) bool { return time.Now().Before(r.held[p].until) }
+
+// RefreshLoop brings up the sources that are not answering yet and refreshes
+// the ones that are due, at once and then every check interval. A failure is
+// logged and tried again after its holdoff; open readers keep serving.
+func (r *Registry) RefreshLoop(ctx context.Context) {
+	check := time.NewTicker(r.check)
+	defer check.Stop()
 	for {
+		r.retryPending()
+		r.refreshLive()
 		select {
 		case <-ctx.Done():
 			log.Println("database update task cancelled")
 			return
-		case <-retry.C:
-			r.retryPending()
-		case <-refresh.C:
-			r.retryPending()
-			r.refreshLive()
+		case <-check.C:
 		}
 	}
 }
 
 // retryPending brings up every source not answering yet: a first download
-// deferred at startup, or a source lost to a transient failure.
+// deferred at startup, or a source lost to a failure.
 func (r *Registry) retryPending() {
 	r.mu.RLock()
 	pending := append([]Provider(nil), r.pending...)
 	r.mu.RUnlock()
 	for _, p := range pending {
-		if err := r.bring(p); err != nil {
-			log.Printf("%s: still unavailable: %v", p.Name(), err)
+		if r.holding(p) {
 			continue
 		}
+		if err := r.bring(p); err != nil {
+			log.Printf("%s: still unavailable, next try in %s: %v", p.Name(), r.failed(p), err)
+			continue
+		}
+		delete(r.held, p)
 		r.promote(p)
 		log.Printf("%s: ready and now answering", p.Name())
 	}
@@ -292,7 +325,7 @@ func (r *Registry) retryPending() {
 // refreshLive re-checks each answering source whose data is due.
 func (r *Registry) refreshLive() {
 	for _, p := range r.live() {
-		if !r.needsUpdate(p) {
+		if !r.needsUpdate(p) || r.holding(p) {
 			continue
 		}
 		log.Printf("%s: refreshing databases...", p.Name())
@@ -300,20 +333,22 @@ func (r *Registry) refreshLive() {
 			if errors.Is(err, errNotModified) {
 				// Stamped like a download: the question the stamp answers is
 				// "when did this source last check out", and it just did.
+				delete(r.held, p)
 				r.stamp(p)
 				log.Printf("%s: already current", p.Name())
 				continue
 			}
-			log.Printf("%s: refresh failed: %v", p.Name(), err)
+			log.Printf("%s: refresh failed, next try in %s: %v", p.Name(), r.failed(p), err)
 			continue
 		}
 		if err := p.Open(); err != nil {
 			// The freshly downloaded files are on disk but unusable. Leave
-			// the stamp alone so the next tick retries rather than trusting
+			// the stamp alone so a later check retries rather than trusting
 			// them; the previously open readers keep serving meanwhile.
-			log.Printf("%s: reopen after refresh failed: %v", p.Name(), err)
+			log.Printf("%s: reopen after refresh failed, next try in %s: %v", p.Name(), r.failed(p), err)
 			continue
 		}
+		delete(r.held, p)
 		r.stamp(p)
 		log.Printf("%s: databases updated", p.Name())
 	}
@@ -321,12 +356,13 @@ func (r *Registry) refreshLive() {
 
 // DefaultClient is the client every source downloads with.
 //
-// Credentials ride in query strings — MaxMind's licence key, IPinfo's token —
-// and both services answer a download with a redirect to signed storage: an R2
-// bucket for MaxMind, IPinfo's CDN. Following a redirect, Go sends the previous
-// URL as the Referer, query string and all, which would hand the credential to
-// the storage host. It sets that header before consulting CheckRedirect, so this
-// is where it comes off. The ten-redirect limit is Go's default, kept.
+// IPinfo's token rides in the query string, and IPinfo answers a download with
+// a redirect to signed storage on its CDN. Following a redirect, Go sends the
+// previous URL as the Referer, query string and all, which would hand the token
+// to the storage host. It sets that header before consulting CheckRedirect, so
+// this is where it comes off. (MaxMind's key travels as basic auth, which Go
+// itself drops on a redirect to another host.) The ten-redirect limit is Go's
+// default, kept.
 func DefaultClient() *http.Client {
 	return &http.Client{
 		Timeout: downloadTimeout,

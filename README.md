@@ -457,12 +457,14 @@ Open `http://localhost/` in a browser for the page (it sends a browser
 ## GeoIP data
 
 Each source manages its own files in the data volume and downloads them on
-first start if they are missing. A background loop re-checks every
-`GEOIP_UPDATE_INTERVAL_HOURS`, using a per-source `.timestamp` marker. A source
-may impose a longer floor: DB-IP publishes monthly, so it is never checked more
-than once a day however low the interval is set. The other no-account sources
-have a cheap way to ask whether anything changed, and a check that finds
-nothing new downloads nothing.
+first start if they are missing. A background loop looks over every source
+every 15 minutes and refreshes each one whose `.timestamp` marker is older than
+`GEOIP_UPDATE_INTERVAL_HOURS`, so every source keeps to that interval on its own
+clock. A source may impose a longer floor: DB-IP publishes monthly, so it is
+never checked more than once a day however low the interval is set. Every
+source has a cheap way to ask whether anything changed — a checksum, a HEAD
+request or a conditional GET — and a check that finds nothing new downloads
+nothing.
 
 Every source here is its own dataset. Services that repackage one beacon
 already reads — RIPEstat's geolocation is MaxMind's, and several projects
@@ -470,12 +472,18 @@ republish GeoLite2 and DB-IP — are deliberately not used.
 
 **DB-IP Lite** — City and ASN, free, no account, CC-BY 4.0, published monthly
 at a month-stamped URL. beacon asks for the current month and falls back to the
-previous one when the new files are not out yet.
+previous one when the new files are not out yet. A HEAD request says which
+release is published, and each installed file carries its release's
+`Last-Modified` as its modification time, so a month's files are downloaded
+once rather than every day.
 
-**MaxMind GeoLite2** — Country, City and ASN, fetched with HTTP basic auth,
-streamed while hashing, SHA-256–checked against MaxMind's published checksum.
-Archives are capped at 64 members and 512 MiB per database, and the license key
-is redacted from any logged URL or error.
+**MaxMind GeoLite2** — Country, City and ASN, fetched from MaxMind's
+permalinks with the account ID and licence key as HTTP basic auth, streamed
+while hashing, SHA-256–checked against MaxMind's published checksum. City and
+Country are rebuilt twice a week and ASN most days, and every download counts
+against the account's daily limit, so each refresh first asks with a HEAD
+request — which MaxMind does not count — and downloads only the editions whose
+build has moved. Archives are capped at 64 members and 512 MiB per database.
 
 **IPinfo Lite** — country, continent and autonomous system from IPinfo's own
 measurement network, free with an account, CC BY-SA 4.0, rebuilt daily. IPinfo
@@ -483,11 +491,12 @@ allows ten downloads a day per address; its checksum endpoint is free, so a
 refresh asks it first and downloads only a database whose SHA-256 moved, then
 verifies it against that.
 
-Two of these carry a credential in the query string — MaxMind's licence key and
-IPinfo's token — and both answer a download with a redirect to signed storage
-elsewhere. Go would pass the original URL along as the redirected request's
-`Referer`; beacon's client drops it, so a credential never reaches the storage
-host, and it is redacted from every logged URL and error.
+Both answer a download with a redirect to signed storage elsewhere. MaxMind's
+licence key travels in the `Authorization` header, which Go does not forward to
+another host. IPinfo's token rides in the query string, and Go would pass the
+original URL along as the redirected request's `Referer`; beacon's client drops
+it, so the token never reaches the storage host, and it is redacted from every
+logged URL and error.
 
 **IPLocate** — IP-to-Country and IP-to-ASN (the ASN records also carry the
 network's organisation), free, no account, CC BY-SA 4.0, rebuilt daily. They
@@ -535,12 +544,14 @@ every address.
 
 Every database is written to a temp file and only then renamed into place, and
 readers are swapped under a lock, so a lookup never sees a half-written file
-and the service keeps answering during an update. A refresh that fails is
-logged and retried on the next tick; the readers already open keep serving. A
-source that is not answering — its first download still to come, or failed —
-is set aside rather than taking the service down, and tried again every 15
-minutes until it comes up. Files on the volume that will not open are
-downloaded again rather than left to keep their source down.
+and the service keeps answering during an update. A source that is not
+answering — its first download still to come, or failed — is set aside rather
+than taking the service down, and brought up by the loop. A failure, of a first
+download or a refresh, is logged and tried again after a wait: 15 minutes,
+doubling with each failure after that up to the refresh interval, so a source
+that is down is not asked four times an hour; the readers already open keep
+serving meanwhile. Files on the volume that will not open are downloaded again
+rather than left to keep their source down.
 
 Within a source: ASN is always attempted; the City database supplies location
 when it has any, otherwise the Country database supplies the country alone.

@@ -17,12 +17,13 @@ const dbipBaseURL = "https://download.db-ip.com/free"
 type DBIP struct {
 	dataDir string
 	client  *http.Client
+	baseURL string
 
 	dbs swappable
 }
 
 func NewDBIP(dataDir string, client *http.Client) *DBIP {
-	return &DBIP{dataDir: dataDir, client: client}
+	return &DBIP{dataDir: dataDir, client: client, baseURL: dbipBaseURL}
 }
 
 func (d *DBIP) Name() string { return "DB-IP" }
@@ -59,7 +60,10 @@ func (d *DBIP) Open() error {
 func (d *DBIP) Close() { d.dbs.closeAll() }
 
 // Download fetches this month's files, falling back to last month's when the
-// new ones have not been published yet.
+// new ones have not been published yet — and only a file that is not the one
+// installed. A HEAD request says which release is published; DB-IP publishes
+// once a month, so nearly every check ends there rather than downloading the
+// same 137 MB again.
 func (d *DBIP) Download() error {
 	city, asn := d.paths()
 	removeStaleTemps(city, asn)
@@ -71,36 +75,54 @@ func (d *DBIP) Download() error {
 		{"city", city},
 		{"asn", asn},
 	} {
-		p, err := d.fetchEdition(ed.edition, ed.dest, now)
+		rawURL, released, err := d.latest(ed.edition, now)
 		if err != nil {
 			cleanupPending(pending)
 			return err
 		}
+		if isRelease(ed.dest, released) {
+			continue
+		}
+		p, err := fetchGzippedMMDB(d.client, rawURL, ed.dest)
+		if err != nil {
+			cleanupPending(pending)
+			return err
+		}
+		markRelease(p.tmp, released)
 		pending = append(pending, p)
 	}
-
+	if len(pending) == 0 {
+		return errNotModified
+	}
 	return install(pending)
 }
 
-func (d *DBIP) fetchEdition(edition, dest string, now time.Time) (pendingFile, error) {
-	for _, offset := range []int{0, -1} {
-		stamp := now.AddDate(0, offset, 0).Format("2006-01")
-		rawURL := fmt.Sprintf("%s/dbip-%s-lite-%s.mmdb.gz", dbipBaseURL, edition, stamp)
+// latest finds an edition's newest published file: this month's, or last
+// month's while this month's is not out. It returns the file's URL and when it
+// was published.
+func (d *DBIP) latest(edition string, now time.Time) (string, time.Time, error) {
+	// From the first of the month: a month back from the 31st of March is the
+	// 3rd of March, not February.
+	thisMonth := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
+	for _, month := range []time.Time{thisMonth, thisMonth.AddDate(0, -1, 0)} {
+		stamp := month.Format("2006-01")
+		rawURL := fmt.Sprintf("%s/dbip-%s-lite-%s.mmdb.gz", d.baseURL, edition, stamp)
 
-		p, err := fetchGzippedMMDB(d.client, rawURL, dest)
+		released, err := headModified(d.client, rawURL, "", "")
 		if err == nil {
-			if offset != 0 {
+			if month != thisMonth {
 				log.Printf("DB-IP: %s for %s not published yet, using %s", edition, now.Format("2006-01"), stamp)
 			}
-			return p, nil
+			return rawURL, released, nil
 		}
 		if !isUnavailable(err) {
-			return pendingFile{}, err
+			return "", time.Time{}, err
 		}
 	}
-	return pendingFile{}, fmt.Errorf("DB-IP %s: no published database for %s or the month before",
+	return "", time.Time{}, fmt.Errorf("DB-IP %s: no published database for %s or the month before",
 		edition, now.Format("2006-01"))
 }
 
-// DB-IP publishes monthly, so checking more often than daily is pointless.
+// DB-IP publishes monthly, so checking more often than daily is pointless,
+// even though a check is only a HEAD request.
 func (d *DBIP) MinRefresh() time.Duration { return 24 * time.Hour }

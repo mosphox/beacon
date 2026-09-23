@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -21,6 +22,8 @@ type fakeProvider struct {
 	missing  bool  // no files on disk until a download succeeds
 	openErr  error // what Open returns until a download replaces the files
 
+	onDownload func() // called on every download, from whichever goroutine
+
 	downloads, opens int
 }
 
@@ -28,6 +31,9 @@ func (f *fakeProvider) Name() string       { return f.name }
 func (f *fakeProvider) Provides() Fields   { return f.provides }
 func (f *fakeProvider) FilesPresent() bool { return !f.missing }
 func (f *fakeProvider) Download() error {
+	if f.onDownload != nil {
+		f.onDownload()
+	}
 	f.downloads++
 	if f.download == nil {
 		f.missing, f.openErr = false, nil
@@ -141,8 +147,8 @@ func TestUnusableFilesAreDownloadedAgain(t *testing.T) {
 	}
 }
 
-// A source whose download fails stays aside and is tried again, while the
-// others go on answering.
+// A source whose download fails stays aside, is left alone for a while, and
+// is then tried again, while the others go on answering.
 func TestFailedSourceIsTriedAgain(t *testing.T) {
 	flaky := &fakeProvider{name: "Flaky", missing: true, download: errors.New("connection refused")}
 	ready := &fakeProvider{name: "Ready"}
@@ -157,12 +163,101 @@ func TestFailedSourceIsTriedAgain(t *testing.T) {
 
 	flaky.download = nil
 	r.retryPending()
+	if flaky.downloads != 1 {
+		t.Fatalf("tried again at once after failing: %d downloads, want 1", flaky.downloads)
+	}
+
+	expireHoldoff(r, flaky)
+	r.retryPending()
 	if got := strings.Join(r.Sources(), ","); got != "Flaky,Ready" {
 		t.Errorf("after a successful retry: answering %s, want Flaky,Ready", got)
 	}
 	r.retryPending()
 	if flaky.downloads != 2 {
 		t.Errorf("an answering source was retried again: %d downloads, want 2", flaky.downloads)
+	}
+}
+
+// expireHoldoff ends the wait a failure imposed, as time passing would.
+func expireHoldoff(r *Registry, p Provider) {
+	h := r.held[p]
+	h.until = time.Time{}
+	r.held[p] = h
+}
+
+// A refresh that fails is not tried again on the very next check either.
+func TestFailedRefreshIsHeldOff(t *testing.T) {
+	p := &fakeProvider{name: "Flaky", download: errors.New("status 503")}
+	r, err := NewRegistry(t.TempDir(), time.Hour, p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.refreshLive()
+	r.refreshLive()
+	if p.downloads != 1 {
+		t.Fatalf("refresh retried at once: %d downloads, want 1", p.downloads)
+	}
+
+	expireHoldoff(r, p)
+	p.download = nil
+	r.refreshLive()
+	if p.downloads != 2 || r.holding(p) {
+		t.Errorf("after the wait: %d downloads, still held %v; want 2 and false", p.downloads, r.holding(p))
+	}
+}
+
+// Each failure doubles the wait, from one check interval up to the refresh
+// interval, and a success clears it.
+func TestHoldoffDoublesUpToTheInterval(t *testing.T) {
+	p := &fakeProvider{name: "Down"}
+	r, err := NewRegistry(t.TempDir(), time.Hour, p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.check = 5 * time.Minute
+	var waits []string
+	for range 6 {
+		waits = append(waits, r.failed(p).String())
+	}
+	if got, want := strings.Join(waits, " "), "5m0s 10m0s 20m0s 40m0s 1h0m0s 1h0m0s"; got != want {
+		t.Errorf("waits = %s, want %s", got, want)
+	}
+
+	expireHoldoff(r, p)
+	r.refreshLive() // no stamp yet, so due; the download succeeds
+	if _, held := r.held[p]; held {
+		t.Error("a success left the source held off")
+	}
+}
+
+// The loop holds each source to its own interval, however that falls against
+// the loop's wake-ups: a source falling due between two intervals is caught
+// at the next check, not at the next interval.
+func TestLoopKeepsASourceToItsInterval(t *testing.T) {
+	due := make(chan struct{})
+	p := &fakeProvider{name: "Fake"}
+	r, err := NewRegistry(t.TempDir(), time.Hour, p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Last refreshed just under an hour ago: due in a second, long before an
+	// hourly wake-up would come round.
+	last := time.Now().Add(-time.Hour + time.Second).Unix()
+	if err := os.WriteFile(r.stampPath(p), []byte(strconv.FormatInt(last, 10)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	r.check = 10 * time.Millisecond
+	p.onDownload = func() { close(due) }
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { r.RefreshLoop(ctx); close(done) }()
+	defer func() { cancel(); <-done }()
+
+	select {
+	case <-due:
+	case <-time.After(5 * time.Second):
+		t.Fatal("a source that fell due was not refreshed within 5s")
 	}
 }
 
@@ -221,28 +316,38 @@ func TestProvidersDeclareWhatTheyCover(t *testing.T) {
 	}
 }
 
-// Credentials travel in query strings, and the downloads redirect to someone
-// else's storage. The redirected request must not carry the old URL as its
-// Referer, or the credential goes with it.
-func TestDefaultClientSendsNoRefererOnRedirect(t *testing.T) {
-	var referer, seen string
+// Credentials travel in query strings and in basic auth, and the downloads
+// redirect to someone else's storage. The redirected request must carry
+// neither the old URL as its Referer, nor the Authorization header.
+func TestDefaultClientSendsNoCredentialOnRedirect(t *testing.T) {
+	var referer, auth, seen string
 	storage := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		referer, seen = r.Header.Get("Referer"), r.URL.RawQuery
+		referer, auth, seen = r.Header.Get("Referer"), r.Header.Get("Authorization"), r.URL.RawQuery
 		w.Write([]byte("database"))
 	}))
 	defer storage.Close()
 	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		http.Redirect(w, r, storage.URL+"/signed?sig=abc", http.StatusFound)
+		// Another host name for the same machine: storage is elsewhere.
+		elsewhere := strings.Replace(storage.URL, "127.0.0.1", "localhost", 1)
+		http.Redirect(w, r, elsewhere+"/signed?sig=abc", http.StatusFound)
 	}))
 	defer origin.Close()
 
-	resp, err := DefaultClient().Get(origin.URL + "/download?token=s3cret&license_key=s3cret")
+	req, err := http.NewRequest(http.MethodGet, origin.URL+"/download?token=s3cret&license_key=s3cret", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.SetBasicAuth("42", "s3cret")
+	resp, err := DefaultClient().Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}
 	resp.Body.Close()
 	if referer != "" {
 		t.Errorf("redirected request carried Referer %q", referer)
+	}
+	if auth != "" {
+		t.Errorf("redirected request carried Authorization %q", auth)
 	}
 	if strings.Contains(seen, "s3cret") {
 		t.Errorf("credential reached the storage host: %q", seen)
