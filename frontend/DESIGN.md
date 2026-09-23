@@ -94,8 +94,11 @@ non-essential hints only and never carries information on its own.
 
 Base unit 4px; scale 4 8 12 16 24 32 48 64 96. Nothing between.
 
-Single column, left-aligned below the fold, centred in the hero. Content max-width 720px.
-Gutters 16px mobile, 24px tablet, 32px desktop. Section rhythm 48px mobile, 64px desktop.
+Single column, left-aligned below the fold, centred in the hero. The readout is 720px wide
+or three quarters of the viewport, whichever is wider: the comparison tables set up to
+seven sources side by side, and at 720px their values wrap — "Europe/Madrid" onto two
+lines. Prose in it keeps the 68ch measure however wide the column gets. Gutters 16px
+mobile, 24px tablet, 32px desktop. Section rhythm 48px mobile, 64px desktop.
 
 The readout is three levels deep and no more: **section → group → table**. A section is a
 subject and carries an `h2`. A group is one table with a sentence-case caption saying what

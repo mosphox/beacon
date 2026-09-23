@@ -33,7 +33,10 @@
   --warn: #f59e0b;
 
   --gutter: 16px;
-  --measure: 720px;
+  /* Three quarters of the viewport where that is wider than 720px: the comparison tables
+     set up to seven sources side by side, and at 720px their values wrap. Prose inside
+     keeps its own 68ch measure however wide this gets. */
+  --measure: max(720px, 75vw);
 }
 
 @media (min-width: 768px) {
