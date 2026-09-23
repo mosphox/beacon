@@ -167,7 +167,8 @@ systems for it: routing data against registry data.
 Agreement is semantic, not textual. Sources are compared on the autonomous
 system *number*, so "GOOGLE" against "Google LLC" is not a disagreement, and on
 the country *code*, so IPFire's "United States of America" against DB-IP's
-"United States" is not one either. A source that knows only the country is
+"United States" is not one either, and on place names without case or accents,
+so a geofeed's plain-ASCII "Malmo" agrees with "Malmö". A source that knows only the country is
 treated as a coarser answer that folds into a more specific one rather than as a
 conflict. Top-level fields are filled per field from the first source that has
 each one, so a source knowing only the ASN does not blank out a city another
@@ -547,9 +548,9 @@ subject to the
 Database (RFC 9632), a country, region and usually a city for each of their
 ranges. The commercial databases fold these into their own data; this is the
 same word first-hand. The RIPE source's daily reading of the database lists the
-links — about 75,000 blocks linking 4,300 files — so this source needs RIPE on.
-The first pass fetches them all, a few minutes and about 50 MB; after that a
-pass asks only for the feeds that are due. A feed is believed only
+links — about 75,000 blocks linking 4,600 files — so this source needs RIPE on.
+The first pass fetches them all, a few minutes and about 100 MB kept on disk;
+after that a pass asks only for the feeds that are due. A feed is believed only
 for the addresses of the block that links it, and not where a more specific
 block links a feed of its own — without that, anyone could publish a location
 for anyone's addresses. Each feed is kept on disk and fetched on its own

@@ -10,11 +10,14 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 	// The zone database, compiled in. The runtime image has none at
 	// /usr/share/zoneinfo, so without this every time.LoadLocation failed there
 	// and local_time was null for every source that reports a time zone — which
 	// went unseen while DB-IP, which reports none, was the only source.
 	_ "time/tzdata"
+
+	"golang.org/x/text/unicode/norm"
 
 	"beacon/internal/geoip"
 	"beacon/internal/h2fp"
@@ -177,7 +180,8 @@ type group struct {
 
 // groupByValue collapses per-source values into distinct groups, preserving
 // the order sources were registered in. Sources with no value are skipped.
-func groupByValue(answers []geoip.Answer, value func(geoip.Record) string) []group {
+// Values are grouped when key makes them equal; a group shows its first.
+func groupByValue(answers []geoip.Answer, value func(geoip.Record) string, key func(string) string) []group {
 	var groups []group
 	for _, a := range answers {
 		v := value(a.Record)
@@ -186,7 +190,7 @@ func groupByValue(answers []geoip.Answer, value func(geoip.Record) string) []gro
 		}
 		idx := -1
 		for i := range groups {
-			if groups[i].Value == v {
+			if key(groups[i].Value) == key(v) {
 				idx = i
 				break
 			}
@@ -218,6 +222,30 @@ func (g groups) render() string {
 }
 
 type groups []group
+
+// same is the key for values compared exactly.
+func same(s string) string { return s }
+
+// fold is the key for place names: lower case, with accents and the letters
+// that carry them in their shape (ø, ł, đ, ß, æ, œ) reduced to plain Latin.
+func fold(s string) string {
+	var b strings.Builder
+	for _, r := range norm.NFD.String(s) {
+		if unicode.Is(unicode.Mn, r) {
+			continue
+		}
+		if plain, ok := foldLetters[unicode.ToLower(r)]; ok {
+			b.WriteString(plain)
+			continue
+		}
+		b.WriteRune(unicode.ToLower(r))
+	}
+	return b.String()
+}
+
+var foldLetters = map[rune]string{
+	'ø': "o", 'ł': "l", 'đ': "d", 'ß': "ss", 'æ': "ae", 'œ': "oe", 'ı': "i", 'þ': "th",
+}
 
 // locationSegment is the location half of the plain-text line, in the original
 // format: "City [CC] Country", with absent parts omitted. The country is
@@ -275,7 +303,7 @@ func asnKey(r geoip.Record) string {
 
 // asnGroups groups on the number but displays the first label seen for it.
 func (resp Response) asnGroups() groups {
-	out := groups(groupByValue(resp.Answers, asnKey))
+	out := groups(groupByValue(resp.Answers, asnKey, same))
 	for i := range out {
 		for _, a := range resp.Answers {
 			if asnKey(a.Record) == out[i].Value && a.Record.ASNLabel() != "" {
@@ -295,11 +323,14 @@ func (resp Response) asnGroups() groups {
 // "Mountain View [US] United States [MaxMind] / [US] United States [DB-IP]"
 // reads as a conflict where there is none. Folding only happens when there is
 // exactly one more specific candidate, so a genuine split is still shown.
+//
+// Places are compared folded: "Malmö" and "Malmo" are one city, and a geofeed,
+// often written in plain ASCII, spells it the second way.
 func (resp Response) locationGroups() groups {
 	names := resp.countryNames()
 	out := groups(groupByValue(resp.Answers, func(r geoip.Record) string {
 		return locationSegment(r, names)
-	}))
+	}, fold))
 	if len(out) < 2 {
 		return out
 	}
@@ -308,7 +339,7 @@ func (resp Response) locationGroups() groups {
 	for _, g := range out {
 		target := -1
 		for j, other := range out {
-			if other.Value == g.Value || !strings.HasSuffix(other.Value, g.Value) {
+			if fold(other.Value) == fold(g.Value) || !strings.HasSuffix(fold(other.Value), fold(g.Value)) {
 				continue
 			}
 			if target >= 0 {

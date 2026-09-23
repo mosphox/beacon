@@ -257,7 +257,9 @@ disagreed or not.
 
 Country names are shown one way per code — the first source's spelling, or the browser's
 own name for a code no source names. A region given as a code alone takes the name a
-source uses for the same code in the same country, and stays unnamed otherwise. IPFire says "United States of America" where DB-IP
+source uses for the same code in the same country, and stays unnamed otherwise. Values
+are compared without case or accents, so a geofeed's plain-ASCII "Malmo" does not mark a
+row against "Malmö". IPFire says "United States of America" where DB-IP
 says "United States", and comparing the text would present a spelling as a disagreement
 about where the visitor is. The JSON keeps every source's own spelling; the table compares
 places, not orthography.

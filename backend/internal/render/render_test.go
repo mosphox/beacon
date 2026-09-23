@@ -656,6 +656,28 @@ func TestRegistrationFromACodeAlone(t *testing.T) {
 	}
 }
 
+// "Malmö" and "Malmo" are the same city: a geofeed written in plain ASCII
+// agrees with a database that uses the accent, and the first spelling shows.
+func TestPlacesCompareWithoutAccents(t *testing.T) {
+	answers := []geoip.Answer{
+		{Source: "MaxMind", Record: geoip.Record{Country: "Sweden", CountryCode: "SE", HasData: true}},
+		{Source: "DB-IP", Record: geoip.Record{City: "Malmö", Country: "Sweden", CountryCode: "SE", HasData: true}},
+		{Source: "Geofeeds", Record: geoip.Record{City: "MALMO", CountryCode: "SE", HasData: true}},
+	}
+	resp := New("151.242.3.10", "", answers)
+	if !resp.LocationsAgree() {
+		t.Errorf("Malmö and MALMO read as a disagreement: %s", resp.PlainText())
+	}
+	if got := resp.PlainText(); got != "151.242.3.10 Malmö [SE] Sweden\n" {
+		t.Errorf("plain text = %q", got)
+	}
+	for in, want := range map[string]string{"Malmö": "malmo", "Łódź": "lodz", "Tromsø": "tromso", "São Paulo": "sao paulo", "Straße": "strasse"} {
+		if got := fold(in); got != want {
+			t.Errorf("fold(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
 // A geofeed names its region by code alone; the name is null, never "".
 func TestCodeOnlyRegion(t *testing.T) {
 	answers := []geoip.Answer{{Source: "Geofeeds", Record: geoip.Record{

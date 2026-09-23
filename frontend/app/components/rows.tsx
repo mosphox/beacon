@@ -113,6 +113,31 @@ export type CompareRow = {
  * put a disagreement on nearly every row once sources of different precision sit side
  * by side.
  */
+/** Letters that carry their accent in their shape, which NFD does not take apart. */
+const PLAIN: Record<string, string> = {
+  ø: 'o',
+  ł: 'l',
+  đ: 'd',
+  ß: 'ss',
+  æ: 'ae',
+  œ: 'oe',
+  ı: 'i',
+  þ: 'th',
+};
+
+/**
+ * A value as the comparison sees it: case and accents aside, so "Malmö" is "Malmo". A
+ * geofeed is often written in plain ASCII, and a spelling is not a disagreement.
+ */
+function fold(v: string | null): string | null {
+  if (v === null) return null;
+  return v
+    .normalize('NFD')
+    .replace(/\p{Mn}/gu, '')
+    .toLowerCase()
+    .replace(/[øłđßæœıþ]/g, (c) => PLAIN[c]);
+}
+
 export function Compare({
   columns,
   rows,
@@ -143,7 +168,7 @@ export function Compare({
       <tbody>
         {rows.map((r) => {
           const isCovered = (i: number) => r.covered?.[i] ?? true;
-          const compared = r.values.filter((_, i) => isCovered(i));
+          const compared = r.values.filter((_, i) => isCovered(i)).map(fold);
           const differs = compared.some((v) => v !== compared[0]);
           return (
             <tr role="row" key={r.label} className={differs ? 'differs' : undefined}>
