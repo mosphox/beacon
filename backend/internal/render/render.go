@@ -10,6 +10,11 @@ import (
 	"strings"
 	"sync"
 	"time"
+	// The zone database, compiled in. The runtime image has none at
+	// /usr/share/zoneinfo, so without this every time.LoadLocation failed there
+	// and local_time was null for every source that reports a time zone — which
+	// went unseen while DB-IP, which reports none, was the only source.
+	_ "time/tzdata"
 
 	"beacon/internal/geoip"
 	"beacon/internal/h2fp"
