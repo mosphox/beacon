@@ -294,8 +294,8 @@ export default function BeaconView() {
  * GeoLite2 EULA requires its notice verbatim. DB-IP Lite is CC BY 4.0 and
  * IPinfo's, IPLocate's and IPFire's data CC BY-SA 4.0, all of which require
  * attribution on the output and not only in the README; IPinfo and IPLocate ask
- * for a link in so many words. ip-location-db is public domain and needs none, but a source this page
- * shows by name is a source it credits.
+ * for a link in so many words. ip-location-db is public domain and the RIPE Database's
+ * terms ask for no notice, but a source this page shows by name is a source it credits.
  */
 function Colophon() {
   return (
@@ -316,7 +316,9 @@ function Colophon() {
         <a href="https://location.ipfire.org">IPFire&nbsp;Location</a> database, all licensed
         under <a href="https://creativecommons.org/licenses/by-sa/4.0/">CC&nbsp;BY-SA&nbsp;4.0</a>.
         Country data from <a href="https://github.com/sapics/ip-location-db">ip-location-db</a>,
-        in the public domain.
+        in the public domain. Registration data from the{' '}
+        <a href="https://www.ripe.net/manage-ips-and-asns/db/">RIPE&nbsp;Database</a>, under
+        its <a href="https://docs.db.ripe.net/HTML-Terms-And-Conditions">terms and conditions</a>.
       </p>
     </footer>
   );
@@ -462,15 +464,14 @@ const ADMIN_FIELDS: Field<Location>[] = [
     needs: 'in_european_union',
     of: (l) => (l.country_code ? (l.in_european_union ? 'yes' : 'no') : null),
   },
+];
+
+const REGISTRY_FIELDS: Field<Location>[] = [
   {
+    // The name alone, as for Country. RIPE gives only the code; withCountryNames names it.
     label: 'Registered to',
     needs: 'registered_country',
-    of: (l) =>
-      l.registered_country
-        ? `${l.registered_country}${
-            l.registered_country_code ? ` (${l.registered_country_code})` : ''
-          }`
-        : null,
+    of: (l) => l.registered_country ?? l.registered_country_code,
   },
 ];
 
@@ -491,6 +492,25 @@ function plainRows<T>(fields: Field<T>[], subject: T, provides: Provides[]) {
     .map((f) => <Row key={f.label} label={f.label} value={f.of(subject)} />);
 }
 
+/** Several sources side by side, one source as plain rows, none as nothing. */
+function sideBySide(fields: Field<Location>[], columns: Column[]) {
+  if (columns.length > 1) {
+    return (
+      <Compare
+        columns={columns.map((c) => c.name)}
+        rows={compareRows(
+          fields,
+          columns.map((c) => c.location),
+          columns.map((c) => c.provides),
+        )}
+      />
+    );
+  }
+  return columns.length === 1 ? (
+    <Rows>{plainRows(fields, columns[0].location, columns[0].provides)}</Rows>
+  ) : null;
+}
+
 const LIST = new Intl.ListFormat('en', { style: 'long', type: 'conjunction' });
 
 function listOf(names: string[]): string {
@@ -500,25 +520,32 @@ function listOf(names: string[]): string {
 const REGIONS = new Intl.DisplayNames(['en'], { type: 'region' });
 
 /**
- * Every location with its country named the same way for the same code: the first
- * source's spelling, or the browser's where no source names it.
+ * Every location with its countries named the same way for the same code: the first
+ * source's spelling, or the browser's where no source names it. That goes for the
+ * registered country too, which is the same list of countries.
  *
  * Databases spell countries differently — IPFire says "United States of America" where
- * DB-IP says "United States" — and ip-location-db gives only the code. Compared as text,
- * a spelling would read as a disagreement about where you are. The response keeps each
- * source's own spelling; this is only how they are set side by side.
+ * DB-IP says "United States" — and ip-location-db and RIPE give only the code. Compared as
+ * text, a spelling would read as a disagreement about where you are. The response keeps
+ * each source's own spelling; this is only how they are set side by side.
  */
 function withCountryNames(sources: Source[]): Location[] {
   const names = new Map<string, string>();
-  for (const { location: l } of sources) {
-    if (l.country_code && l.country && !names.has(l.country_code)) {
-      names.set(l.country_code, l.country);
-    }
-  }
+  const learn = (code: string | null, name: string | null) => {
+    if (code && name && !names.has(code)) names.set(code, name);
+  };
+  for (const { location: l } of sources) learn(l.country_code, l.country);
+  for (const { location: l } of sources) learn(l.registered_country_code, l.registered_country);
+
+  const nameOf = (code: string) => names.get(code) ?? regionName(code);
   return sources.map(({ location: l }) => {
-    if (!l.country_code) return l;
-    const country = names.get(l.country_code) ?? regionName(l.country_code);
-    return country === l.country ? l : { ...l, country };
+    const country = l.country_code ? nameOf(l.country_code) : l.country;
+    const registered = l.registered_country_code
+      ? nameOf(l.registered_country_code)
+      : l.registered_country;
+    return country === l.country && registered === l.registered_country
+      ? l
+      : { ...l, country, registered_country: registered };
   });
 }
 
@@ -535,6 +562,9 @@ type Column = { name: string; location: Location; provides: Provides[] };
 
 /** The note under the place table, naming the sources that are not in it. */
 function placeNote(fine: Column[], coarse: Column[]): string | undefined {
+  if (fine.length === 0 && coarse.length === 0) {
+    return 'No database places this address. Its registration is below.';
+  }
   if (fine.length === 0) {
     return 'None of these sources places this address more precisely than its country.';
   }
@@ -569,14 +599,22 @@ function LocationSection({ data }: { data: BeaconResponse }) {
   }));
   // Sources that can place an address below its country get the place table; the rest
   // know the country and nothing finer, and are compared on that, in the second table.
+  // A registry (RIPE) places nothing: it names the country the address is registered to,
+  // beside MaxMind's in a table of its own, and is not counted as agreeing on a place.
   const fine = columns.filter((c) => PLACE_KEYS.some((k) => c.provides.includes(k)));
-  const coarse = columns.filter((c) => !fine.includes(c));
-  const multiple = columns.length > 1;
+  const coarse = columns.filter((c) => !fine.includes(c) && c.provides.includes('country'));
+  const placing = columns.filter((c) => fine.includes(c) || coarse.includes(c));
+  const registries = columns.filter((c) => c.provides.includes('registered_country'));
+  const multiple = placing.length > 1;
 
   return (
     <Section
       title="Location"
-      note={multiple ? `${columns.length} sources ${agree ? 'agree' : 'disagree'}` : columns[0].name}
+      note={
+        multiple
+          ? `${placing.length} sources ${agree ? 'agree' : 'disagree'}`
+          : (placing[0] ?? columns[0]).name
+      }
       noteTone={multiple ? (agree ? 'agree' : 'differ') : undefined}
       intro={
         multiple && !agree
@@ -585,34 +623,16 @@ function LocationSection({ data }: { data: BeaconResponse }) {
       }
     >
       <Group caption="Where it puts you" note={placeNote(fine, coarse)}>
-        {fine.length > 1 ? (
-          <Compare
-            columns={fine.map((c) => c.name)}
-            rows={compareRows(
-              PLACE_FIELDS,
-              fine.map((c) => c.location),
-              fine.map((c) => c.provides),
-            )}
-          />
-        ) : fine.length === 1 ? (
-          <Rows>{plainRows(PLACE_FIELDS, fine[0].location, fine[0].provides)}</Rows>
-        ) : null}
+        {sideBySide(PLACE_FIELDS, fine)}
       </Group>
 
-      <Group caption="Country and registry">
-        {multiple ? (
-          <Compare
-            columns={columns.map((c) => c.name)}
-            rows={compareRows(
-              ADMIN_FIELDS,
-              columns.map((c) => c.location),
-              columns.map((c) => c.provides),
-            )}
-          />
-        ) : (
-          <Rows>{plainRows(ADMIN_FIELDS, columns[0].location, columns[0].provides)}</Rows>
-        )}
-      </Group>
+      {placing.length > 0 ? (
+        <Group caption="Country">{sideBySide(ADMIN_FIELDS, placing)}</Group>
+      ) : null}
+
+      {registries.length > 0 ? (
+        <Group caption="Registration">{sideBySide(REGISTRY_FIELDS, registries)}</Group>
+      ) : null}
     </Section>
   );
 }

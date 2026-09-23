@@ -54,11 +54,13 @@ services:
       - TLS_LISTEN_ADDR=${TLS_LISTEN_ADDR:-:8443}
       - FRONTEND_URL=${FRONTEND_URL-http://frontend:3000}
       - GEOIP_UPDATE_INTERVAL_HOURS=${GEOIP_UPDATE_INTERVAL_HOURS:-12}
-      # GeoIP sources. The first four need no account; MaxMind is optional.
+      # GeoIP sources. These five need no account; MaxMind and IPinfo are
+      # optional. RIPE gives the registered country only.
       - DBIP_ENABLED=${DBIP_ENABLED:-true}
       - IPLOCATE_ENABLED=${IPLOCATE_ENABLED:-true}
       - IPFIRE_ENABLED=${IPFIRE_ENABLED:-true}
       - IP_LOCATION_DB_ENABLED=${IP_LOCATION_DB_ENABLED:-true}
+      - RIPE_ENABLED=${RIPE_ENABLED:-true}
       - MAXMIND_ACCOUNT_ID=${MAXMIND_ACCOUNT_ID:-}
       - MAXMIND_LICENSE_KEY=${MAXMIND_LICENSE_KEY:-}
       - IPINFO_TOKEN=${IPINFO_TOKEN:-}
@@ -77,8 +79,8 @@ services:
     volumes:
       - beacon-data:/app/data
     healthcheck:
-      # The first start downloads databases before it listens, which can take
-      # a minute; start_period keeps that from counting as failure.
+      # A first start on an empty volume downloads one database before it
+      # listens; start_period keeps that from counting as failure.
       test: ["CMD", "/app/beacon", "-healthcheck"]
       interval: 30s
       timeout: 5s

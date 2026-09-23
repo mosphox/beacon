@@ -23,7 +23,9 @@ chosen automatically from the request's `User-Agent` and `Accept` headers.
   rather than a repackaging of another; they differ in precision, from a city
   down to a bare country code, and each says what it covers. Where they agree
   the output is unchanged; where they disagree every answer is shown and
-  attributed. JSON always carries all of them.
+  attributed. JSON always carries all of them. Beside them, the RIPE Database's
+  own records give the country an address is registered to, across RIPE's
+  region.
 - **Versioned JSON.** The nested `version: 2` object is the default; the
   original flat shape is still available as `?v=1`.
 - **Own TLS, optionally.** beacon can terminate TLS itself, obtaining and
@@ -40,9 +42,9 @@ chosen automatically from the request's `User-Agent` and `Accept` headers.
   refreshed on a schedule, written to a temp file and installed atomically.
   Everything that can be verified is: MaxMind's, IPinfo's, IPLocate's and
   ip-location-db's files against the SHA-256 each publishes, IPFire's database
-  against IPFire's own signature. DB-IP publishes nothing to check against. A
-  source whose published data has not changed is not downloaded again. No
-  database files live in the repo.
+  against IPFire's own signature. DB-IP and RIPE publish nothing to check
+  against. A source whose published data has not changed is not downloaded
+  again. No database files live in the repo.
 - **Zero-downtime refresh.** Database readers are hot-swapped under a lock; the
   service keeps answering during an update.
 - **Hardened.** Non-root containers, static CGO-free Go binary, license key
@@ -179,6 +181,12 @@ A `null` or `false` from a source that provides the field is its answer. From
 one that does not, it means nothing either way: DB-IP Lite has no postal code
 for any address, and ip-location-db has nothing but the country code.
 
+`registered_country` is where an address is registered, not where it is: the
+holder's country in the registry, which for a VPN or a leased range can be far
+from anyone using it. MaxMind provides it, and RIPE provides nothing else — as a
+code alone, which the top level names the way the other sources name that
+country. It takes no part in `locations_agree`.
+
 ```
 $ curl -s -H 'Accept: application/json' http://localhost/203.0.113.17
 {
@@ -266,7 +274,7 @@ $ curl -s http://localhost/203.0.113.17
 ## Configuration
 
 Settings are environment variables. Copy `example.env` to `.env`; compose reads
-it. Nothing is required: beacon runs on the four sources that need no account.
+it. Nothing is required: beacon runs on the sources that need no account.
 Misconfiguration is rejected at startup rather than at the first request.
 
 | Variable                      | Required | Default   | Description                                                       |
@@ -275,6 +283,7 @@ Misconfiguration is rejected at startup rather than at the first request.
 | `IPLOCATE_ENABLED`            | no       | `true`    | Use IPLocate's IP-to-Country and IP-to-ASN. No account required.  |
 | `IPFIRE_ENABLED`              | no       | `true`    | Use the IPFire Location database. No account required.            |
 | `IP_LOCATION_DB_ENABLED`      | no       | `true`    | Use ip-location-db's user-country. No account required.           |
+| `RIPE_ENABLED`                | no       | `true`    | Use RIPE's registered countries. No account; locates nothing.     |
 | `MAXMIND_ACCOUNT_ID`          | no       | —         | MaxMind account ID. Set together with the license key, or neither.|
 | `MAXMIND_LICENSE_KEY`         | no       | —         | MaxMind license key.                                              |
 | `IPINFO_TOKEN`                | no       | —         | IPinfo token; enables IPinfo Lite. The token alone, not the URL.  |
@@ -412,12 +421,15 @@ passes the connection through rather than terminating it.
 serving. The container healthcheck runs the binary's own `-healthcheck` flag
 against it, because the runtime image has no shell tools.
 
-Databases are downloaded **before** the listener opens, so a first start with
-an empty volume is unreachable for as long as the download takes — typically
-under a minute. The compose healthcheck allows for that with a `start_period`;
-`docker compose up -d` followed immediately by `curl` may get a connection
-refused until it finishes. With `TLS_ENABLED=true` the ACME exchange also
-completes before either listener opens.
+Databases already on the volume are opened before the listener opens. Missing
+ones download in the background, and each source starts answering once its
+download is done, so enabling a source never takes the service down. Only a
+first start with an empty volume waits, since nothing could answer yet: one
+source downloads before the listener opens — typically a few seconds — and the
+rest follow in the background. The compose healthcheck allows for that with a
+`start_period`; `docker compose up -d` followed immediately by `curl` may get a
+connection refused until it finishes. With `TLS_ENABLED=true` the ACME exchange
+also completes before either listener opens.
 
 ## Quick start
 
@@ -426,10 +438,10 @@ cp example.env .env
 docker compose up -d --build
 ```
 
-No credentials are needed to start: the four no-account sources are downloaded
-on first run — about 175 MB, 290 MB once unpacked on the data volume. Watch it
-come up with `docker compose logs -f backend`, or wait for the container to
-report healthy.
+No credentials are needed to start: the no-account sources are downloaded on
+first run — about 435 MB, of which RIPE's 260 MB is read as it streams and not
+kept, and 295 MB on the data volume. Watch it come up with
+`docker compose logs -f backend`, or wait for the container to report healthy.
 
 With the default `HOST=0.0.0.0` / `PORT=80`:
 
@@ -499,6 +511,23 @@ routing archives and operators' geofeeds, with no WHOIS data and nothing from
 MaxMind or DB-IP. Checked against the SHA-256 published beside it. The project's
 GeoLite2 and DB-IP republications are not used.
 
+**RIPE Database** — the country each address block is registered to, from the
+registry's own records for its region: Europe, the Middle East and Central
+Asia. Free, no account, published daily. It is reported as
+`registered_country`, beside MaxMind's, and never as a location: RIPE's
+documentation says the attribute may be the holder's head office, a server
+centre or the end user, and "cannot be used in any reliable way to map IP
+addresses to countries". Where blocks nest, the innermost one answers, and a
+block registered to the whole region ("EU") answers with no country. The
+`inetnum` and `inet6num` dumps, 223 MB and 38 MB compressed, are streamed and
+reduced as they arrive to an index of about 3.5 MB, which is all that is kept; a
+rebuild takes a few seconds and about 70 MiB of memory. Two HEAD requests say
+whether either dump has moved, so an unchanged day downloads nothing. RIPE
+publishes no checksum: HTTPS, gzip's own CRC and a floor on how many blocks a
+real dump holds stand between a broken download and the index. The dumps are
+subject to the
+[RIPE Database Terms and Conditions](https://docs.db.ripe.net/HTML-Terms-And-Conditions).
+
 IPinfo's, IPLocate's and ip-location-db's files are MMDB with flat records
 rather than the GeoIP2 layout, and are read with `maxminddb-golang` directly:
 `geoip2-golang` opens them without complaint and returns an empty record for
@@ -506,10 +535,12 @@ every address.
 
 Every database is written to a temp file and only then renamed into place, and
 readers are swapped under a lock, so a lookup never sees a half-written file
-and the service keeps answering during an update. A source that fails to
-download is logged and retried on the next tick; the readers already open keep
-serving. A source that cannot start at all is dropped rather than taking the
-service down, as long as one other source works.
+and the service keeps answering during an update. A refresh that fails is
+logged and retried on the next tick; the readers already open keep serving. A
+source that is not answering — its first download still to come, or failed —
+is set aside rather than taking the service down, and tried again every 15
+minutes until it comes up. Files on the volume that will not open are
+downloaded again rather than left to keep their source down.
 
 Within a source: ASN is always attempted; the City database supplies location
 when it has any, otherwise the Country database supplies the country alone.
@@ -621,7 +652,7 @@ backend/                  Go service
   main.go                 HTTP server, content negotiation, frontend proxy
   internal/config         env config and validation
   internal/browser        navigation vs. tool detection (Fetch Metadata, UA)
-  internal/geoip          providers, registry, refresh loop, mmdb and libloc readers
+  internal/geoip          providers, registry, refresh loop, mmdb, libloc and RIPE readers
     testdata/mmdbgen      writes the test .mmdb fixtures; its own module
   internal/rdns           bounded, cached reverse-DNS lookups
   internal/render         JSON (v1/v2) / plain-text response shaping
@@ -662,6 +693,10 @@ licensed under [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/).
 Country data from [ip-location-db](https://github.com/sapics/ip-location-db),
 in the public domain under the
 [PDDL](https://opendatacommons.org/licenses/pddl/1-0/).
+
+Registration data from the
+[RIPE Database](https://www.ripe.net/manage-ips-and-asns/db/), subject to the
+[RIPE Database Terms and Conditions](https://docs.db.ripe.net/HTML-Terms-And-Conditions).
 
 Every notice also appears in the page's footer, which is where the licences
 require them: attribution is owed to the people using the service, not only to

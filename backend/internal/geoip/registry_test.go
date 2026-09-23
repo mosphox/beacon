@@ -2,6 +2,7 @@ package geoip
 
 import (
 	"context"
+	"errors"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -17,15 +18,23 @@ type fakeProvider struct {
 	provides Fields
 	download error
 	rec      Record
+	missing  bool  // no files on disk until a download succeeds
+	openErr  error // what Open returns until a download replaces the files
 
 	downloads, opens int
 }
 
-func (f *fakeProvider) Name() string              { return f.name }
-func (f *fakeProvider) Provides() Fields          { return f.provides }
-func (f *fakeProvider) FilesPresent() bool        { return true }
-func (f *fakeProvider) Download() error           { f.downloads++; return f.download }
-func (f *fakeProvider) Open() error               { f.opens++; return nil }
+func (f *fakeProvider) Name() string       { return f.name }
+func (f *fakeProvider) Provides() Fields   { return f.provides }
+func (f *fakeProvider) FilesPresent() bool { return !f.missing }
+func (f *fakeProvider) Download() error {
+	f.downloads++
+	if f.download == nil {
+		f.missing, f.openErr = false, nil
+	}
+	return f.download
+}
+func (f *fakeProvider) Open() error               { f.opens++; return f.openErr }
 func (f *fakeProvider) Close()                    {}
 func (f *fakeProvider) Lookup(net.IP) Record      { return f.rec }
 func (f *fakeProvider) MinRefresh() time.Duration { return 0 }
@@ -77,6 +86,86 @@ func TestRefreshReopensAfterANewDownload(t *testing.T) {
 	}
 }
 
+// A source with nothing on disk yet does not hold up the others: they answer
+// at once, and it joins — in its own place in the order — once its first
+// download is done.
+func TestMissingSourceDownloadsInTheBackground(t *testing.T) {
+	late := &fakeProvider{name: "Late", missing: true}
+	ready := &fakeProvider{name: "Ready"}
+	r, err := NewRegistry(t.TempDir(), time.Hour, late, ready)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if late.downloads != 0 {
+		t.Fatalf("downloaded %d times before serving, want 0", late.downloads)
+	}
+	if got := strings.Join(r.Sources(), ","); got != "Ready" {
+		t.Fatalf("answering at start: %s, want Ready", got)
+	}
+
+	runOnce(r)
+	if late.downloads != 1 {
+		t.Errorf("first refresh pass: %d downloads, want 1", late.downloads)
+	}
+	if got := strings.Join(r.Sources(), ","); got != "Late,Ready" {
+		t.Errorf("answering after the download: %s, want Late,Ready", got)
+	}
+	if _, err := os.Stat(r.stampPath(late)); err != nil {
+		t.Errorf("no timestamp after the first download: %v", err)
+	}
+}
+
+// With nothing able to answer, there is no service to keep up: the first
+// source downloads before NewRegistry returns.
+func TestFirstDownloadBlocksWhenNothingCanAnswer(t *testing.T) {
+	only := &fakeProvider{name: "Only", missing: true}
+	r, err := NewRegistry(t.TempDir(), time.Hour, only)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if only.downloads != 1 || strings.Join(r.Sources(), ",") != "Only" {
+		t.Errorf("%d downloads, answering %v; want 1 and Only", only.downloads, r.Sources())
+	}
+}
+
+// Files on disk that will not open are replaced, not left to keep the source
+// down until someone deletes them.
+func TestUnusableFilesAreDownloadedAgain(t *testing.T) {
+	p := &fakeProvider{name: "Damaged", openErr: errors.New("not a database")}
+	r, err := NewRegistry(t.TempDir(), time.Hour, p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.downloads != 1 || p.opens != 2 || len(r.Sources()) != 1 {
+		t.Errorf("%d downloads, %d opens, answering %v; want 1, 2 and Damaged", p.downloads, p.opens, r.Sources())
+	}
+}
+
+// A source whose download fails stays aside and is tried again, while the
+// others go on answering.
+func TestFailedSourceIsTriedAgain(t *testing.T) {
+	flaky := &fakeProvider{name: "Flaky", missing: true, download: errors.New("connection refused")}
+	ready := &fakeProvider{name: "Ready"}
+	r, err := NewRegistry(t.TempDir(), time.Hour, flaky, ready)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runOnce(r)
+	if flaky.downloads != 1 || strings.Join(r.Sources(), ",") != "Ready" {
+		t.Fatalf("after a failed download: %d downloads, answering %v", flaky.downloads, r.Sources())
+	}
+
+	flaky.download = nil
+	r.retryPending()
+	if got := strings.Join(r.Sources(), ","); got != "Flaky,Ready" {
+		t.Errorf("after a successful retry: answering %s, want Flaky,Ready", got)
+	}
+	r.retryPending()
+	if flaky.downloads != 2 {
+		t.Errorf("an answering source was retried again: %d downloads, want 2", flaky.downloads)
+	}
+}
+
 // What a source covers travels with each answer, so an empty field can be read
 // as "no answer" or "never answers" correctly.
 func TestLookupAllCarriesWhatEachSourceProvides(t *testing.T) {
@@ -119,6 +208,8 @@ func TestProvidersDeclareWhatTheyCover(t *testing.T) {
 		{NewIPFire("", nil), FieldCountry | FieldAnycast | FieldSatelliteProvider, FieldCity | FieldEuropeanUnion},
 		{NewIPLocationDB("", nil), FieldCountry, FieldContinent | FieldASN},
 		{NewIPinfo("t", "", nil), FieldCountry | FieldContinent | FieldASNOrg, FieldCity | FieldEuropeanUnion | FieldAnycast},
+		// A registration, never a location.
+		{NewRIPE("", nil), FieldRegisteredCountry, FieldCountry | FieldContinent | FieldCity | FieldASN},
 	} {
 		got := tc.p.Provides()
 		if got&^AllFields != 0 {

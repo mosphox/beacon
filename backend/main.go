@@ -222,6 +222,10 @@ func buildRegistry(cfg config.Config) (*geoip.Registry, error) {
 	if cfg.IPLocationDBEnabled {
 		providers = append(providers, geoip.NewIPLocationDB(cfg.DataDir, client))
 	}
+	// Last: it answers only the registered country, which MaxMind also has.
+	if cfg.RIPEEnabled {
+		providers = append(providers, geoip.NewRIPE(cfg.DataDir, client))
+	}
 
 	return geoip.NewRegistry(cfg.DataDir, time.Duration(cfg.UpdatePeriodHours)*time.Hour, providers...)
 }

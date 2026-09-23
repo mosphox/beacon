@@ -133,6 +133,12 @@ func (resp Response) primary() geoip.Record {
 		out.IsSatelliteProvider = out.IsSatelliteProvider || r.IsSatelliteProvider
 		out.HasData = out.HasData || r.HasData
 	}
+
+	// A registry gives the code alone. It is named as the sources name that
+	// country, so without MaxMind a registration still reads as a country.
+	if out.RegisteredCountry == "" && out.RegisteredCountryCode != "" {
+		out.RegisteredCountry = resp.countryNames()[out.RegisteredCountryCode]
+	}
 	return out
 }
 

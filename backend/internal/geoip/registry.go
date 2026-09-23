@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -18,6 +19,12 @@ import (
 const (
 	downloadTimeout  = 5 * time.Minute
 	fallbackInterval = 12 * time.Hour
+
+	// retryInterval is how soon a source that could not come up is tried again.
+	// The refresh interval suits data that is merely ageing; a source that is
+	// missing altogether should not stay missing for twelve hours over one
+	// failed download.
+	retryInterval = 15 * time.Minute
 )
 
 // Provider is one source of GeoIP data. Each owns its own files in the data
@@ -41,40 +48,82 @@ type Provider interface {
 type Registry struct {
 	dataDir  string
 	interval time.Duration
+	retry    time.Duration
+	rank     map[Provider]int // priority: position in the list given to NewRegistry
 
 	mu        sync.RWMutex
-	providers []Provider // answering lookups
-	pending   []Provider // failed to start; retried by the refresh loop
+	providers []Provider // answering lookups, in priority order
+	pending   []Provider // not answering yet; brought up by the refresh loop
 }
 
 func NewRegistry(dataDir string, interval time.Duration, providers ...Provider) (*Registry, error) {
 	if len(providers) == 0 {
 		return nil, fmt.Errorf("no GeoIP providers enabled")
 	}
-	// providers is filled by the loop below; seeding it here would double every entry.
-	r := &Registry{dataDir: dataDir, interval: interval}
+	// providers is filled by the loops below; seeding it here would double every entry.
+	r := &Registry{
+		dataDir:  dataDir,
+		interval: interval,
+		retry:    retryInterval,
+		rank:     make(map[Provider]int, len(providers)),
+	}
+	for i, p := range providers {
+		r.rank[p] = i
+	}
 
 	if err := os.MkdirAll(dataDir, 0o755); err != nil {
 		return nil, fmt.Errorf("create data dir: %w", err)
 	}
 
-	// A provider that cannot be brought up is set aside rather than being fatal,
-	// so one failing source never takes the service down when another works. It
-	// is retried on every refresh tick: a network blip or a bad file on the
-	// volume at boot should not disable a source for the process lifetime.
+	// Sources whose data is already on disk come up now: they only need
+	// opening. One that still has to download does it in the background, from
+	// the refresh loop, and starts answering when it is done. A first download
+	// can take a minute — RIPE's dumps are a quarter of a gigabyte — and the
+	// service should not be down for it while other sources could answer. Only
+	// when none can is there nothing to serve without waiting.
+	//
+	// A source that cannot be brought up is set aside rather than being fatal,
+	// so one failing source never takes the service down when another works.
+	var missing []Provider
 	for _, p := range providers {
-		if err := r.bring(p); err != nil {
-			log.Printf("%s: unavailable, will retry: %v", p.Name(), err)
+		if !p.FilesPresent() {
+			missing = append(missing, p)
+			continue
+		}
+		r.start(p)
+	}
+	for _, p := range missing {
+		if len(r.providers) > 0 {
+			log.Printf("%s: databases missing, downloading in the background", p.Name())
 			r.pending = append(r.pending, p)
 			continue
 		}
-		log.Printf("%s: ready", p.Name())
-		r.providers = append(r.providers, p)
+		r.start(p)
 	}
 	if len(r.providers) == 0 {
 		return nil, fmt.Errorf("no GeoIP provider could be initialised")
 	}
+	r.sortByRank()
 	return r, nil
+}
+
+// start brings p up now, or sets it aside for the refresh loop to retry.
+func (r *Registry) start(p Provider) {
+	if err := r.bring(p); err != nil {
+		log.Printf("%s: unavailable, will retry: %v", p.Name(), err)
+		r.pending = append(r.pending, p)
+		return
+	}
+	log.Printf("%s: ready", p.Name())
+	r.providers = append(r.providers, p)
+}
+
+// sortByRank restores priority order, which the top-level answer depends on,
+// after a source joins late. Callers hold the write lock, or own r outright.
+func (r *Registry) sortByRank() {
+	sort.SliceStable(r.providers, func(i, j int) bool {
+		return r.rank[r.providers[i]] < r.rank[r.providers[j]]
+	})
 }
 
 // live returns a snapshot of the answering providers.
@@ -84,7 +133,7 @@ func (r *Registry) live() []Provider {
 	return append([]Provider(nil), r.providers...)
 }
 
-// promote moves a provider from pending to answering.
+// promote moves a provider from pending to answering, in its priority place.
 func (r *Registry) promote(p Provider) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -95,25 +144,31 @@ func (r *Registry) promote(p Provider) {
 		}
 	}
 	r.providers = append(r.providers, p)
+	r.sortByRank()
 }
 
+// bring makes p ready to answer. What is on disk is opened; when nothing is,
+// or what is there will not open, it downloads first — so a damaged file is
+// replaced instead of keeping the source down until someone deletes it.
 func (r *Registry) bring(p Provider) error {
-	downloaded := false
-	if !p.FilesPresent() {
-		log.Printf("%s: databases missing, downloading...", p.Name())
-		if err := p.Download(); err != nil {
-			return err
+	if p.FilesPresent() {
+		err := p.Open()
+		if err == nil {
+			return nil
 		}
-		downloaded = true
+		log.Printf("%s: installed databases unusable, downloading again: %v", p.Name(), err)
+	} else {
+		log.Printf("%s: databases missing, downloading...", p.Name())
+	}
+	if err := p.Download(); err != nil {
+		return err
 	}
 	if err := p.Open(); err != nil {
 		return err
 	}
 	// Stamp only once the files have proven openable, so unusable data is
 	// retried rather than treated as fresh.
-	if downloaded {
-		r.stamp(p)
-	}
+	r.stamp(p)
 	return nil
 }
 
@@ -189,64 +244,78 @@ func (r *Registry) needsUpdate(p Provider) bool {
 	return age > every
 }
 
-// RefreshLoop re-checks every provider on the configured interval. A failure
-// is logged and retried next tick; the currently open readers keep serving.
+// RefreshLoop brings up sources that are not answering yet — at once, then
+// every retry interval — and re-checks every answering source on the refresh
+// interval. A failure is logged and retried; open readers keep serving.
 func (r *Registry) RefreshLoop(ctx context.Context) {
 	interval := r.interval
 	if interval <= 0 {
 		interval = fallbackInterval
 	}
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
+	refresh := time.NewTicker(interval)
+	defer refresh.Stop()
+	retry := time.NewTicker(r.retry)
+	defer retry.Stop()
 
+	r.retryPending()
+	r.refreshLive()
 	for {
-		// Retry anything that could not start, so a source lost to a transient
-		// failure comes back on its own.
-		r.mu.RLock()
-		pending := append([]Provider(nil), r.pending...)
-		r.mu.RUnlock()
-		for _, p := range pending {
-			if err := r.bring(p); err != nil {
-				log.Printf("%s: still unavailable: %v", p.Name(), err)
-				continue
-			}
-			r.promote(p)
-			log.Printf("%s: recovered and now answering", p.Name())
-		}
-
-		for _, p := range r.live() {
-			if !r.needsUpdate(p) {
-				continue
-			}
-			log.Printf("%s: refreshing databases...", p.Name())
-			if err := p.Download(); err != nil {
-				if errors.Is(err, errNotModified) {
-					// Stamped like a download: the question the stamp answers is
-					// "when did this source last check out", and it just did.
-					r.stamp(p)
-					log.Printf("%s: already current", p.Name())
-					continue
-				}
-				log.Printf("%s: refresh failed: %v", p.Name(), err)
-				continue
-			}
-			if err := p.Open(); err != nil {
-				// The freshly downloaded files are on disk but unusable. Leave
-				// the stamp alone so the next tick retries rather than trusting
-				// them; the previously open readers keep serving meanwhile.
-				log.Printf("%s: reopen after refresh failed: %v", p.Name(), err)
-				continue
-			}
-			r.stamp(p)
-			log.Printf("%s: databases updated", p.Name())
-		}
-
 		select {
 		case <-ctx.Done():
 			log.Println("database update task cancelled")
 			return
-		case <-ticker.C:
+		case <-retry.C:
+			r.retryPending()
+		case <-refresh.C:
+			r.retryPending()
+			r.refreshLive()
 		}
+	}
+}
+
+// retryPending brings up every source not answering yet: a first download
+// deferred at startup, or a source lost to a transient failure.
+func (r *Registry) retryPending() {
+	r.mu.RLock()
+	pending := append([]Provider(nil), r.pending...)
+	r.mu.RUnlock()
+	for _, p := range pending {
+		if err := r.bring(p); err != nil {
+			log.Printf("%s: still unavailable: %v", p.Name(), err)
+			continue
+		}
+		r.promote(p)
+		log.Printf("%s: ready and now answering", p.Name())
+	}
+}
+
+// refreshLive re-checks each answering source whose data is due.
+func (r *Registry) refreshLive() {
+	for _, p := range r.live() {
+		if !r.needsUpdate(p) {
+			continue
+		}
+		log.Printf("%s: refreshing databases...", p.Name())
+		if err := p.Download(); err != nil {
+			if errors.Is(err, errNotModified) {
+				// Stamped like a download: the question the stamp answers is
+				// "when did this source last check out", and it just did.
+				r.stamp(p)
+				log.Printf("%s: already current", p.Name())
+				continue
+			}
+			log.Printf("%s: refresh failed: %v", p.Name(), err)
+			continue
+		}
+		if err := p.Open(); err != nil {
+			// The freshly downloaded files are on disk but unusable. Leave
+			// the stamp alone so the next tick retries rather than trusting
+			// them; the previously open readers keep serving meanwhile.
+			log.Printf("%s: reopen after refresh failed: %v", p.Name(), err)
+			continue
+		}
+		r.stamp(p)
+		log.Printf("%s: databases updated", p.Name())
 	}
 }
 

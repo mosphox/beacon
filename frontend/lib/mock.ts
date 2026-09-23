@@ -54,6 +54,8 @@ const TBILISI = (): Location =>
     country_code: 'GE',
     continent: 'Asia',
     continent_code: 'AS',
+    registered_country: 'Georgia',
+    registered_country_code: 'GE',
     latitude: 41.7151,
     longitude: 44.8271,
     accuracy_radius_km: 20,
@@ -119,7 +121,7 @@ const NO_FLAGS = { anycast: false, anonymous_proxy: false, satellite_provider: f
 /**
  * What each source provides, as the backend declares it. The fixtures only ever fill
  * these fields for a source, so the page meets the same mix of precision it does in
- * production: a city from DB-IP, a bare country code from ip-location-db.
+ * production: a city from DB-IP, a bare country code from ip-location-db and RIPE.
  */
 const PROVIDES = {
   MaxMind: [
@@ -162,6 +164,7 @@ const PROVIDES = {
     'satellite_provider',
   ],
   'ip-location-db': ['country'],
+  RIPE: ['registered_country'],
 } satisfies Record<string, Provides[]>;
 
 type SourceName = keyof typeof PROVIDES;
@@ -195,7 +198,8 @@ function source(
       continent: has('continent') ? loc.continent : null,
       continent_code: has('continent') ? loc.continent_code : null,
       in_european_union: has('in_european_union') ? loc.in_european_union : false,
-      registered_country: has('registered_country') ? loc.registered_country : null,
+      registered_country:
+        has('registered_country') && name !== 'RIPE' ? loc.registered_country : null,
       registered_country_code: has('registered_country') ? loc.registered_country_code : null,
       latitude: has('coordinates') ? loc.latitude : null,
       longitude: has('coordinates') ? loc.longitude : null,
@@ -278,7 +282,8 @@ type Fixture = {
 
 const FIXTURES: Fixture[] = [
   {
-    // Every source, agreeing: the country-level ones fold into the city.
+    // Every source, agreeing: the country-level ones fold into the city, and the registry
+    // joins only the country table.
     ip: '203.0.113.84',
     family: 'ipv4',
     hostname: '84.33.3.149.silknet.com',
@@ -290,6 +295,7 @@ const FIXTURES: Fixture[] = [
       source('IPLocate', TBILISI(), net(35805, 'JSC "Silknet"')),
       source('IPFire', TBILISI(), net(35805, 'JSC "Silknet"')),
       source('ip-location-db', TBILISI()),
+      source('RIPE', TBILISI()),
     ],
   },
   {

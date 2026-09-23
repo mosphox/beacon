@@ -241,8 +241,15 @@ disagreed or not.
   the field answering "nothing for this address" — an answer, and so still a difference.
 - Stacked on a phone, where every value already names its source, uncovered cells are
   dropped rather than dashed: a list has no columns to hold in line.
-- A row no column covers is not drawn at all. "Registered to" exists only while MaxMind
-  is configured.
+- A row no column covers is not drawn at all, and neither is a table. "Registration"
+  exists only while MaxMind or RIPE is configured.
+- A registry places nothing. RIPE names the country an address is registered to — the
+  holder's say, which for a VPN or a leased range is nowhere near the visitor — so it is
+  compared with MaxMind's registered country in a table of its own, "Registration", and it
+  is not counted in "N sources agree", which is about where you are. As a column in
+  "Country" it would add a column of dashes to a table already six wide, where names
+  already wrap. A registered country that differs is marked on its row like any other
+  field.
 
 Country names are shown one way per code — the first source's spelling, or the browser's
 own name for a code no source names. IPFire says "United States of America" where DB-IP

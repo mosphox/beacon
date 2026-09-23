@@ -59,9 +59,14 @@ func TestNoAccountSourcesAreOnByDefault(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if !cfg.DBIPEnabled || !cfg.IPLocateEnabled || !cfg.IPFireEnabled || !cfg.IPLocationDBEnabled {
-		t.Errorf("defaults: DB-IP %v, IPLocate %v, IPFire %v, ip-location-db %v; want all on",
-			cfg.DBIPEnabled, cfg.IPLocateEnabled, cfg.IPFireEnabled, cfg.IPLocationDBEnabled)
+	if !cfg.DBIPEnabled || !cfg.IPLocateEnabled || !cfg.IPFireEnabled || !cfg.IPLocationDBEnabled || !cfg.RIPEEnabled {
+		t.Errorf("defaults: DB-IP %v, IPLocate %v, IPFire %v, ip-location-db %v, RIPE %v; want all on",
+			cfg.DBIPEnabled, cfg.IPLocateEnabled, cfg.IPFireEnabled, cfg.IPLocationDBEnabled, cfg.RIPEEnabled)
+	}
+
+	t.Setenv("RIPE_ENABLED", "false")
+	if cfg, err := Load(); err != nil || cfg.RIPEEnabled {
+		t.Errorf("RIPE_ENABLED=false: RIPE %v, err %v", cfg.RIPEEnabled, err)
 	}
 }
 
@@ -69,6 +74,7 @@ func TestSwitchingEverySourceOffIsRefused(t *testing.T) {
 	for _, env := range []string{"DBIP_ENABLED", "IPLOCATE_ENABLED", "IPFIRE_ENABLED", "IP_LOCATION_DB_ENABLED"} {
 		t.Setenv(env, "false")
 	}
+	// RIPE is still on, and does not count: it locates nothing.
 	if _, err := Load(); err == nil {
 		t.Fatal("Load succeeded with no GeoIP source at all")
 	}

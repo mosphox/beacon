@@ -31,6 +31,10 @@ type Config struct {
 	IPFireEnabled       bool
 	IPLocationDBEnabled bool
 
+	// RIPE reports the country an address is registered to, never where it
+	// is, so on its own it does not count as a GeoIP source.
+	RIPEEnabled bool
+
 	// IPinfo Lite needs a free account's token; set, it enables the source.
 	IPinfoToken string
 
@@ -83,6 +87,7 @@ func Load() (Config, error) {
 		{"IPLOCATE_ENABLED", &cfg.IPLocateEnabled},
 		{"IPFIRE_ENABLED", &cfg.IPFireEnabled},
 		{"IP_LOCATION_DB_ENABLED", &cfg.IPLocationDBEnabled},
+		{"RIPE_ENABLED", &cfg.RIPEEnabled},
 	} {
 		if *s.dst, err = boolEnv(s.env, true); err != nil {
 			return Config{}, err
@@ -99,6 +104,8 @@ func Load() (Config, error) {
 		}
 	}
 
+	// RIPE is left out: it places nothing, and a service it alone answered
+	// for would report every address as unlocated.
 	if !cfg.DBIPEnabled && !cfg.IPLocateEnabled && !cfg.IPFireEnabled && !cfg.IPLocationDBEnabled &&
 		cfg.MaxMindAccountID == "" && cfg.IPinfoToken == "" {
 		return Config{}, fmt.Errorf("no GeoIP source enabled: set MAXMIND_* credentials or IPINFO_TOKEN, " +

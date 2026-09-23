@@ -622,6 +622,40 @@ func TestPrimaryPairsTheOperatorWithItsNumber(t *testing.T) {
 	}
 }
 
+// A registry names a country by code alone, and names where the address is
+// registered, not where it is: it takes no part in whether the sources agree
+// on the location.
+func TestRegistrationFromACodeAlone(t *testing.T) {
+	answers := []geoip.Answer{
+		{Source: "DB-IP", Record: geoip.Record{City: "Stockholm", Country: "Sweden", CountryCode: "SE", HasData: true}},
+		{Source: "RIPE", Record: geoip.Record{RegisteredCountryCode: "SE", HasData: true},
+			Provides: geoip.FieldRegisteredCountry},
+	}
+	m := decode(t, New("192.0.2.1", "", answers), SchemaVersion)
+	loc := m["location"].(map[string]any)
+	if loc["registered_country"] != "Sweden" || loc["registered_country_code"] != "SE" {
+		t.Errorf("top level registration = %v (%v), want Sweden (SE)", loc["registered_country"], loc["registered_country_code"])
+	}
+	if loc["city"] != "Stockholm" || m["locations_agree"] != true {
+		t.Errorf("city %v, locations_agree %v; the registration disturbed the location", loc["city"], m["locations_agree"])
+	}
+	ripe := m["sources"].([]any)[1].(map[string]any)["location"].(map[string]any)
+	if ripe["registered_country"] != nil || ripe["country_code"] != nil {
+		t.Errorf("RIPE's own entry = %v, want only the code it gave", ripe)
+	}
+	if got := New("192.0.2.1", "", answers).PlainText(); got != "192.0.2.1 Stockholm [SE] Sweden\n" {
+		t.Errorf("plain text = %q", got)
+	}
+
+	// With another registration first, it is not renamed.
+	answers = append([]geoip.Answer{{Source: "MaxMind", Record: geoip.Record{
+		RegisteredCountry: "Denmark", RegisteredCountryCode: "DK", HasData: true}}}, answers...)
+	loc = decode(t, New("192.0.2.1", "", answers), SchemaVersion)["location"].(map[string]any)
+	if loc["registered_country"] != "Denmark" || loc["registered_country_code"] != "DK" {
+		t.Errorf("top level registration = %v (%v), want MaxMind's Denmark (DK)", loc["registered_country"], loc["registered_country_code"])
+	}
+}
+
 func TestV2SourcesSayWhatTheyProvide(t *testing.T) {
 	answers := []geoip.Answer{
 		{Source: "IPFire", Record: geoip.Record{CountryCode: "US", HasData: true},
