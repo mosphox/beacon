@@ -31,6 +31,9 @@ type Config struct {
 	IPFireEnabled       bool
 	IPLocationDBEnabled bool
 
+	// IPinfo Lite needs a free account's token; set, it enables the source.
+	IPinfoToken string
+
 	UpdatePeriodHours int
 	DataDir           string
 	ListenAddr        string
@@ -85,10 +88,21 @@ func Load() (Config, error) {
 			return Config{}, err
 		}
 	}
+	// The token alone, which is what IPinfo's dashboard shows. It also hands out
+	// the whole download URL with the token inside, and that pasted here would
+	// otherwise fail at the first download instead of now.
+	cfg.IPinfoToken = strings.TrimSpace(os.Getenv("IPINFO_TOKEN"))
+	for _, c := range cfg.IPinfoToken {
+		if !('a' <= c && c <= 'z' || 'A' <= c && c <= 'Z' || '0' <= c && c <= '9') {
+			return Config{}, fmt.Errorf("invalid IPINFO_TOKEN: want the token alone, not a URL " +
+				"(it is the value after token= in the download link)")
+		}
+	}
+
 	if !cfg.DBIPEnabled && !cfg.IPLocateEnabled && !cfg.IPFireEnabled && !cfg.IPLocationDBEnabled &&
-		cfg.MaxMindAccountID == "" {
-		return Config{}, fmt.Errorf("no GeoIP source enabled: set MAXMIND_* credentials, or leave one of " +
-			"DBIP_ENABLED, IPLOCATE_ENABLED, IPFIRE_ENABLED, IP_LOCATION_DB_ENABLED on")
+		cfg.MaxMindAccountID == "" && cfg.IPinfoToken == "" {
+		return Config{}, fmt.Errorf("no GeoIP source enabled: set MAXMIND_* credentials or IPINFO_TOKEN, " +
+			"or leave one of DBIP_ENABLED, IPLOCATE_ENABLED, IPFIRE_ENABLED, IP_LOCATION_DB_ENABLED on")
 	}
 
 	cfg.UpdatePeriodHours = defaultUpdatePeriodHours

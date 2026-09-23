@@ -150,6 +150,7 @@ const PROVIDES = {
     'asn',
     'asn_org',
   ],
+  IPinfo: ['country', 'continent', 'asn', 'asn_org'],
   IPLocate: ['country', 'continent', 'asn', 'asn_org'],
   IPFire: [
     'country',
@@ -285,6 +286,7 @@ const FIXTURES: Fixture[] = [
     sources: [
       source('MaxMind', TBILISI(), net(35805, 'SILKNET-AS')),
       source('DB-IP', TBILISI(), net(35805, 'JSC Silknet')),
+      source('IPinfo', TBILISI(), net(35805, 'JSC Silknet')),
       source('IPLocate', TBILISI(), net(35805, 'JSC "Silknet"')),
       source('IPFire', TBILISI(), net(35805, 'JSC "Silknet"')),
       source('ip-location-db', TBILISI()),

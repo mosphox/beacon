@@ -62,6 +62,26 @@ func main() {
 		}},
 	})
 
+	// IPinfo Lite: names as well as codes, and an "AS"-prefixed number that
+	// about a fifth of networks lack.
+	write("ipinfo-lite.mmdb", []entry{
+		{"8.8.8.0/24", mmdbtype.Map{
+			"country":        mmdbtype.String("United States"),
+			"country_code":   mmdbtype.String("US"),
+			"continent":      mmdbtype.String("North America"),
+			"continent_code": mmdbtype.String("NA"),
+			"asn":            mmdbtype.String("AS15169"),
+			"as_name":        mmdbtype.String("Google LLC"),
+			"as_domain":      mmdbtype.String("google.com"),
+		}},
+		{"198.51.100.0/24", mmdbtype.Map{
+			"country":        mmdbtype.String("Georgia"),
+			"country_code":   mmdbtype.String("GE"),
+			"continent":      mmdbtype.String("Asia"),
+			"continent_code": mmdbtype.String("AS"),
+		}},
+	})
+
 	write("ip-location-db-user-country.mmdb", []entry{
 		{"8.8.8.0/24", mmdbtype.Map{"country_code": mmdbtype.String("US")}},
 		{"77.88.8.0/24", mmdbtype.Map{"country_code": mmdbtype.String("RU")}},

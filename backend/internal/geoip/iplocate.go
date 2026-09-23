@@ -217,11 +217,11 @@ func fillIPLocateCountry(rec *Record, c iplocateCountry) {
 }
 
 func fillIPLocateASN(rec *Record, a iplocateASN) {
-	n, err := strconv.ParseUint(strings.TrimPrefix(strings.ToUpper(a.ASN), "AS"), 10, 32)
-	if err != nil || n == 0 {
+	n, ok := parseASN(a.ASN)
+	if !ok {
 		return
 	}
-	rec.ASN = uint(n)
+	rec.ASN = n
 	// org is the organisation ("Google LLC"); name is the registry handle
 	// ("GOOGLE"), used only when there is no organisation.
 	rec.ASNOrg = a.Org
@@ -229,6 +229,16 @@ func fillIPLocateASN(rec *Record, a iplocateASN) {
 		rec.ASNOrg = a.Name
 	}
 	rec.HasData = true
+}
+
+// parseASN reads an autonomous system number written as text, with or without
+// the "AS" prefix: IPLocate writes "15169", IPinfo "AS15169".
+func parseASN(s string) (uint, bool) {
+	n, err := strconv.ParseUint(strings.TrimPrefix(strings.ToUpper(s), "AS"), 10, 32)
+	if err != nil || n == 0 {
+		return 0, false
+	}
+	return uint(n), true
 }
 
 func (s *iplocateSet) close() {

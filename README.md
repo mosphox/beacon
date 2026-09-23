@@ -17,8 +17,9 @@ chosen automatically from the request's `User-Agent` and `Accept` headers.
   flags, and ASN (number + organization) — plus the caller's reverse-DNS
   hostname.
 - **Multiple GeoIP sources, compared.** Four sources that need no account —
-  DB-IP Lite, IPLocate, IPFire Location and ip-location-db — and MaxMind
-  GeoLite2 (optional) answer independently. Each is an independent dataset
+  DB-IP Lite, IPLocate, IPFire Location and ip-location-db — and two that need
+  a free one, MaxMind GeoLite2 and IPinfo Lite (both optional), answer
+  independently. Each is an independent dataset
   rather than a repackaging of another; they differ in precision, from a city
   down to a bare country code, and each says what it covers. Where they agree
   the output is unchanged; where they disagree every answer is shown and
@@ -37,7 +38,7 @@ chosen automatically from the request's `User-Agent` and `Accept` headers.
   any address.
 - **Self-maintaining GeoIP data.** Databases are downloaded on first start and
   refreshed on a schedule, written to a temp file and installed atomically.
-  Everything that can be verified is: MaxMind's, IPLocate's and
+  Everything that can be verified is: MaxMind's, IPinfo's, IPLocate's and
   ip-location-db's files against the SHA-256 each publishes, IPFire's database
   against IPFire's own signature. DB-IP publishes nothing to check against. A
   source whose published data has not changed is not downloaded again. No
@@ -276,6 +277,7 @@ Misconfiguration is rejected at startup rather than at the first request.
 | `IP_LOCATION_DB_ENABLED`      | no       | `true`    | Use ip-location-db's user-country. No account required.           |
 | `MAXMIND_ACCOUNT_ID`          | no       | —         | MaxMind account ID. Set together with the license key, or neither.|
 | `MAXMIND_LICENSE_KEY`         | no       | —         | MaxMind license key.                                              |
+| `IPINFO_TOKEN`                | no       | —         | IPinfo token; enables IPinfo Lite. The token alone, not the URL.  |
 | `GEOIP_UPDATE_INTERVAL_HOURS` | no       | `12`      | How often the backend checks for / downloads fresh databases.     |
 | `HOST`                        | no       | `0.0.0.0` | Host interface the backend is published on.                       |
 | `PORT`                        | no       | `80`      | Host port the backend is published on (mapped to `8000`).         |
@@ -295,8 +297,10 @@ Misconfiguration is rejected at startup rather than at the first request.
 | `TLS_PUBLISH`                 | no       | unpublished | Host mapping for the TLS port, e.g. `127.0.0.1:8443:8443`.      |
 | `PROXY_PROTOCOL`              | no       | `false`   | Read a PROXY protocol header before the TLS handshake.            |
 
-A free MaxMind GeoLite2 account provides the account ID and license key. It is
-worth adding as a second opinion, but beacon works without it.
+A free MaxMind GeoLite2 account provides the account ID and license key, and a
+free IPinfo account the token — the value after `token=` in the download link
+its dashboard shows. Both are worth adding as further opinions, but beacon
+works without either.
 
 ### Reverse DNS
 
@@ -461,6 +465,18 @@ streamed while hashing, SHA-256–checked against MaxMind's published checksum.
 Archives are capped at 64 members and 512 MiB per database, and the license key
 is redacted from any logged URL or error.
 
+**IPinfo Lite** — country, continent and autonomous system from IPinfo's own
+measurement network, free with an account, CC BY-SA 4.0, rebuilt daily. IPinfo
+allows ten downloads a day per address; its checksum endpoint is free, so a
+refresh asks it first and downloads only a database whose SHA-256 moved, then
+verifies it against that.
+
+Two of these carry a credential in the query string — MaxMind's licence key and
+IPinfo's token — and both answer a download with a redirect to signed storage
+elsewhere. Go would pass the original URL along as the redirected request's
+`Referer`; beacon's client drops it, so a credential never reaches the storage
+host, and it is redacted from every logged URL and error.
+
 **IPLocate** — IP-to-Country and IP-to-ASN (the ASN records also carry the
 network's organisation), free, no account, CC BY-SA 4.0, rebuilt daily. They
 are published through Git LFS, so the pointer file in the repository carries
@@ -483,8 +499,8 @@ routing archives and operators' geofeeds, with no WHOIS data and nothing from
 MaxMind or DB-IP. Checked against the SHA-256 published beside it. The project's
 GeoLite2 and DB-IP republications are not used.
 
-IPLocate's and ip-location-db's files are MMDB with flat records rather than
-the GeoIP2 layout, and are read with `maxminddb-golang` directly:
+IPinfo's, IPLocate's and ip-location-db's files are MMDB with flat records
+rather than the GeoIP2 layout, and are read with `maxminddb-golang` directly:
 `geoip2-golang` opens them without complaint and returns an empty record for
 every address.
 
@@ -633,6 +649,9 @@ This product includes GeoLite2 data created by MaxMind, available from
 
 IP geolocation by [DB-IP](https://db-ip.com), licensed under
 [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
+
+IP address data powered by [IPinfo](https://ipinfo.io), licensed under
+[CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/).
 
 IP address data powered by [IPLocate.io](https://www.iplocate.io), licensed
 under [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/).

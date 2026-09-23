@@ -1,6 +1,9 @@
 package config
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 // LISTEN_ADDR set to empty is how a TLS-only deployment turns the plain
 // listener off. envOr used to treat empty as unset and substitute the default
@@ -86,5 +89,35 @@ func TestSourceSwitchesRejectNonsense(t *testing.T) {
 	t.Setenv("IPLOCATE_ENABLED", "sometimes")
 	if _, err := Load(); err == nil {
 		t.Error("Load accepted IPLOCATE_ENABLED=sometimes")
+	}
+}
+
+func TestIPinfoTokenEnablesTheSource(t *testing.T) {
+	t.Setenv("IPINFO_TOKEN", " abc123def456gh ")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.IPinfoToken != "abc123def456gh" {
+		t.Errorf("IPinfoToken = %q, want it trimmed", cfg.IPinfoToken)
+	}
+}
+
+// The dashboard hands out the whole download URL; pasted here it must fail at
+// startup, with a message saying what to put instead.
+func TestIPinfoTokenRefusesAURL(t *testing.T) {
+	t.Setenv("IPINFO_TOKEN", "https://ipinfo.io/data/ipinfo_lite.mmdb?token=abc123")
+	if _, err := Load(); err == nil || !strings.Contains(err.Error(), "token=") {
+		t.Errorf("Load() error = %v, want one naming token=", err)
+	}
+}
+
+func TestIPinfoAloneIsEnough(t *testing.T) {
+	for _, env := range []string{"DBIP_ENABLED", "IPLOCATE_ENABLED", "IPFIRE_ENABLED", "IP_LOCATION_DB_ENABLED"} {
+		t.Setenv(env, "false")
+	}
+	t.Setenv("IPINFO_TOKEN", "abc123")
+	if _, err := Load(); err != nil {
+		t.Errorf("Load with only IPinfo: %v", err)
 	}
 }

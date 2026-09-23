@@ -269,3 +269,99 @@ func TestIPLocationDBDownloadChecksTheChecksum(t *testing.T) {
 		t.Error("accepted a checksum file with no checksum in it")
 	}
 }
+
+func TestIPinfoReadsFlatRecords(t *testing.T) {
+	p := NewIPinfo("t0ken", "testdata", nil)
+	if err := p.Open(); err != nil {
+		t.Fatal(err)
+	}
+	defer p.Close()
+
+	for ip, want := range map[string]Record{
+		"8.8.8.8": {
+			CountryCode: "US", Country: "United States", ContinentCode: "NA", Continent: "North America",
+			ASN: 15169, ASNOrg: "Google LLC", HasData: true,
+		},
+		// A network with no autonomous system still has its country.
+		"198.51.100.7": {
+			CountryCode: "GE", Country: "Georgia", ContinentCode: "AS", Continent: "Asia", HasData: true,
+		},
+		"10.0.0.1": {},
+	} {
+		if got := p.Lookup(net.ParseIP(ip)); !reflect.DeepEqual(got, want) {
+			t.Errorf("%s:\n got %+v\nwant %+v", ip, got, want)
+		}
+	}
+}
+
+func TestParseASN(t *testing.T) {
+	for in, want := range map[string]uint{"15169": 15169, "AS15169": 15169, "as64500": 64500} {
+		if got, ok := parseASN(in); !ok || got != want {
+			t.Errorf("parseASN(%q) = %d, %v; want %d", in, got, ok, want)
+		}
+	}
+	for _, in := range []string{"", "AS", "AS0", "0", "ASx", "4294967296"} {
+		if _, ok := parseASN(in); ok {
+			t.Errorf("parseASN(%q) accepted", in)
+		}
+	}
+}
+
+// IPinfo allows ten downloads a day; its checksum endpoint is free. So the
+// checksum is asked first, and the database fetched only when it moved.
+func TestIPinfoDownloadAsksTheChecksumFirst(t *testing.T) {
+	db := []byte("ipinfo lite v1")
+	sum := sha256Hex(db)
+	var fetches atomic.Int32
+	var tokens []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		tokens = append(tokens, r.URL.Query().Get("token"))
+		switch r.URL.Path {
+		case "/data/ipinfo_lite.mmdb/checksums":
+			fmt.Fprintf(w, `{"checksums": {"md5": "x", "sha1": "y", "sha256": %q}}`, sum)
+		case "/data/ipinfo_lite.mmdb":
+			fetches.Add(1)
+			w.Write(db)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	dir := t.TempDir()
+	p := NewIPinfo("t0ken", dir, srv.Client())
+	p.url, p.sumURL = srv.URL+"/data/ipinfo_lite.mmdb", srv.URL+"/data/ipinfo_lite.mmdb/checksums"
+
+	if err := p.Download(); err != nil {
+		t.Fatalf("first download: %v", err)
+	}
+	if b, _ := os.ReadFile(p.path()); string(b) != "ipinfo lite v1" {
+		t.Errorf("installed %q", b)
+	}
+	for _, tok := range tokens {
+		if tok != "t0ken" {
+			t.Errorf("a request went out with token %q", tok)
+		}
+	}
+
+	fetches.Store(0)
+	if err := p.Download(); !errors.Is(err, errNotModified) {
+		t.Errorf("unchanged checksum: got %v, want errNotModified", err)
+	}
+	if n := fetches.Load(); n != 0 {
+		t.Errorf("downloaded the database %d times for an unchanged checksum", n)
+	}
+
+	sum = strings.Repeat("0", 64)
+	if err := p.Download(); err == nil {
+		t.Fatal("installed a database that does not match its checksum")
+	}
+	if b, _ := os.ReadFile(p.path()); string(b) != "ipinfo lite v1" {
+		t.Errorf("installed file = %q after a failed update, want the previous one", b)
+	}
+
+	sum = "not a checksum"
+	if err := p.Download(); err == nil {
+		t.Error("accepted a checksum response with no SHA-256 in it")
+	}
+}

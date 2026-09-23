@@ -284,15 +284,18 @@ func sanitizeURLErr(err error) error {
 	return err
 }
 
-// redactURL removes a MaxMind license key from anything that reaches a log.
+// redactURL removes credentials carried in a query string — MaxMind's licence
+// key, IPinfo's token — from anything that reaches a log.
 func redactURL(raw string) string {
 	u, err := url.Parse(raw)
 	if err != nil {
 		return "<url>"
 	}
 	q := u.Query()
-	if q.Has("license_key") {
-		q.Set("license_key", "REDACTED")
+	for _, secret := range []string{"license_key", "token"} {
+		if q.Has(secret) {
+			q.Set(secret, "REDACTED")
+		}
 	}
 	u.RawQuery = q.Encode()
 	return u.String()

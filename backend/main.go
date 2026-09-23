@@ -210,6 +210,9 @@ func buildRegistry(cfg config.Config) (*geoip.Registry, error) {
 	}
 	// Coarser sources after the city-level ones, so the top level is filled
 	// from the most specific answer first.
+	if cfg.IPinfoToken != "" {
+		providers = append(providers, geoip.NewIPinfo(cfg.IPinfoToken, cfg.DataDir, client))
+	}
 	if cfg.IPLocateEnabled {
 		providers = append(providers, geoip.NewIPLocate(cfg.DataDir, client))
 	}

@@ -250,4 +250,23 @@ func (r *Registry) RefreshLoop(ctx context.Context) {
 	}
 }
 
-func DefaultClient() *http.Client { return &http.Client{Timeout: downloadTimeout} }
+// DefaultClient is the client every source downloads with.
+//
+// Credentials ride in query strings — MaxMind's licence key, IPinfo's token —
+// and both services answer a download with a redirect to signed storage: an R2
+// bucket for MaxMind, IPinfo's CDN. Following a redirect, Go sends the previous
+// URL as the Referer, query string and all, which would hand the credential to
+// the storage host. It sets that header before consulting CheckRedirect, so this
+// is where it comes off. The ten-redirect limit is Go's default, kept.
+func DefaultClient() *http.Client {
+	return &http.Client{
+		Timeout: downloadTimeout,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) >= 10 {
+				return errors.New("stopped after 10 redirects")
+			}
+			req.Header.Del("Referer")
+			return nil
+		},
+	}
+}

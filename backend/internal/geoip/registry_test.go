@@ -3,7 +3,10 @@ package geoip
 import (
 	"context"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 	"time"
 )
@@ -115,6 +118,7 @@ func TestProvidersDeclareWhatTheyCover(t *testing.T) {
 		{NewIPLocate("", nil), FieldCountry | FieldContinent | FieldASNOrg, FieldCity | FieldEuropeanUnion | FieldAnycast},
 		{NewIPFire("", nil), FieldCountry | FieldAnycast | FieldSatelliteProvider, FieldCity | FieldEuropeanUnion},
 		{NewIPLocationDB("", nil), FieldCountry, FieldContinent | FieldASN},
+		{NewIPinfo("t", "", nil), FieldCountry | FieldContinent | FieldASNOrg, FieldCity | FieldEuropeanUnion | FieldAnycast},
 	} {
 		got := tc.p.Provides()
 		if got&^AllFields != 0 {
@@ -122,6 +126,46 @@ func TestProvidersDeclareWhatTheyCover(t *testing.T) {
 		}
 		if !got.Has(tc.has) || got&tc.hasNot != 0 {
 			t.Errorf("%s provides %b; want all of %b and none of %b", tc.p.Name(), got, tc.has, tc.hasNot)
+		}
+	}
+}
+
+// Credentials travel in query strings, and the downloads redirect to someone
+// else's storage. The redirected request must not carry the old URL as its
+// Referer, or the credential goes with it.
+func TestDefaultClientSendsNoRefererOnRedirect(t *testing.T) {
+	var referer, seen string
+	storage := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		referer, seen = r.Header.Get("Referer"), r.URL.RawQuery
+		w.Write([]byte("database"))
+	}))
+	defer storage.Close()
+	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, storage.URL+"/signed?sig=abc", http.StatusFound)
+	}))
+	defer origin.Close()
+
+	resp, err := DefaultClient().Get(origin.URL + "/download?token=s3cret&license_key=s3cret")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if referer != "" {
+		t.Errorf("redirected request carried Referer %q", referer)
+	}
+	if strings.Contains(seen, "s3cret") {
+		t.Errorf("credential reached the storage host: %q", seen)
+	}
+}
+
+func TestRedactURLHidesCredentials(t *testing.T) {
+	for _, raw := range []string{
+		"https://download.maxmind.com/app/geoip_download?edition_id=GeoLite2-City&license_key=s3cret&suffix=tar.gz",
+		"https://ipinfo.io/data/ipinfo_lite.mmdb?token=s3cret",
+		"https://ipinfo.io/data/ipinfo_lite.mmdb/checksums?_src=frontend&token=s3cret",
+	} {
+		if got := redactURL(raw); strings.Contains(got, "s3cret") || !strings.Contains(got, "REDACTED") {
+			t.Errorf("redactURL(%q) = %q", raw, got)
 		}
 	}
 }

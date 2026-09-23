@@ -292,9 +292,9 @@ export default function BeaconView() {
  * AGPL-3.0 section 13 requires a network service to offer its source to the
  * users interacting with it, which a link in a repository cannot do. MaxMind's
  * GeoLite2 EULA requires its notice verbatim. DB-IP Lite is CC BY 4.0 and
- * IPLocate's and IPFire's data CC BY-SA 4.0, all of which require attribution
- * on the output and not only in the README; IPLocate asks for a link in so many
- * words. ip-location-db is public domain and needs none, but a source this page
+ * IPinfo's, IPLocate's and IPFire's data CC BY-SA 4.0, all of which require
+ * attribution on the output and not only in the README; IPinfo and IPLocate ask
+ * for a link in so many words. ip-location-db is public domain and needs none, but a source this page
  * shows by name is a source it credits.
  */
 function Colophon() {
@@ -311,8 +311,9 @@ function Colophon() {
         <a href="https://www.maxmind.com">maxmind.com</a>. IP geolocation by{' '}
         <a href="https://db-ip.com">DB-IP</a>, licensed under{' '}
         <a href="https://creativecommons.org/licenses/by/4.0/">CC&nbsp;BY&nbsp;4.0</a>. IP address
-        data powered by <a href="https://www.iplocate.io">IPLocate.io</a>, and location data from
-        the <a href="https://location.ipfire.org">IPFire&nbsp;Location</a> database, both licensed
+        data powered by <a href="https://ipinfo.io">IPinfo</a> and{' '}
+        <a href="https://www.iplocate.io">IPLocate.io</a>, and location data from the{' '}
+        <a href="https://location.ipfire.org">IPFire&nbsp;Location</a> database, all licensed
         under <a href="https://creativecommons.org/licenses/by-sa/4.0/">CC&nbsp;BY-SA&nbsp;4.0</a>.
         Country data from <a href="https://github.com/sapics/ip-location-db">ip-location-db</a>,
         in the public domain.
