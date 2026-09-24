@@ -16,12 +16,12 @@ chosen automatically from the request's `User-Agent` and `Accept` headers.
   timezone and local time, continent, EU membership, anycast/proxy/satellite
   flags, and ASN (number + organization) — plus the caller's reverse-DNS
   hostname.
-- **Multiple GeoIP sources, compared.** Four sources that need no account —
-  DB-IP Lite, IPLocate, IPFire Location and ip-location-db — and two that need
-  a free one, MaxMind GeoLite2 and IPinfo Lite (both optional), answer
-  independently. Each is an independent dataset
-  rather than a repackaging of another; they differ in precision, from a city
-  down to a bare country code, and each says what it covers. Where they agree
+- **Multiple GeoIP sources, compared.** Two sources that need no account —
+  DB-IP Lite and IPLocate — and two that need a free one, MaxMind GeoLite2 and
+  IPinfo Lite (both optional), answer independently. Each is its own dataset
+  rather than a repackaging of another, though all build on the same public
+  registry and routing data; they differ in precision, from a city down to the
+  country, and each says what it covers. Where they agree
   the output is unchanged; where they disagree every answer is shown and
   attributed. JSON always carries all of them. Beside them, the RIPE Database's
   own records give the country an address is registered to, across RIPE's
@@ -41,9 +41,8 @@ chosen automatically from the request's `User-Agent` and `Accept` headers.
   any address.
 - **Self-maintaining GeoIP data.** Databases are downloaded on first start and
   refreshed on a schedule, written to a temp file and installed atomically.
-  Everything that can be verified is: MaxMind's, IPinfo's, IPLocate's and
-  ip-location-db's files against the SHA-256 each publishes, IPFire's database
-  against IPFire's own signature. DB-IP and RIPE publish nothing to check
+  Everything that can be verified is: MaxMind's, IPinfo's and IPLocate's files
+  against the SHA-256 each publishes. DB-IP and RIPE publish nothing to check
   against. A source whose published data has not changed is not downloaded
   again. No database files live in the repo.
 - **Zero-downtime refresh.** Database readers are hot-swapped under a lock; the
@@ -166,8 +165,8 @@ systems for it: routing data against registry data.
 
 Agreement is semantic, not textual. Sources are compared on the autonomous
 system *number*, so "GOOGLE" against "Google LLC" is not a disagreement, and on
-the country *code*, so IPFire's "United States of America" against DB-IP's
-"United States" is not one either, and on place names without case or accents,
+the country *code*, so two spellings of one country are not one either, and on
+place names without case or accents,
 so a geofeed's plain-ASCII "Malmo" agrees with "Malmö". A source that knows only the country is
 treated as a coarser answer that folds into a more specific one rather than as a
 conflict. Top-level fields are filled per field from the first source that has
@@ -181,7 +180,7 @@ can fill for any address, by the keys used here (`region` covers the
 subdivisions, `coordinates` latitude and longitude, `timezone` the local time).
 A `null` or `false` from a source that provides the field is its answer. From
 one that does not, it means nothing either way: DB-IP Lite has no postal code
-for any address, and ip-location-db has nothing but the country code.
+for any address, and IPLocate has no city.
 
 Geofeeds give the region as a code alone, so their `region` is `null` beside a
 `region_code`, and a subdivision's `name` can be `null` for the same reason.
@@ -221,8 +220,7 @@ $ curl -s -H 'Accept: application/json' http://localhost/203.0.113.17
       "location": { ... }, "network": { ... }, "flags": { ... } },
     { "source": "DB-IP", "provides": [ "city", "region", "coordinates", ... ],
       "location": { ... }, "network": { ... }, "flags": { ... } },
-    { "source": "IPFire", "provides": [ "country", "continent", "asn", "asn_org",
-                                        "anycast", "anonymous_proxy", "satellite_provider" ],
+    { "source": "IPLocate", "provides": [ "country", "continent", "asn", "asn_org" ],
       "location": { ... }, "network": { ... }, "flags": { ... } }
   ]
 }
@@ -286,8 +284,6 @@ Misconfiguration is rejected at startup rather than at the first request.
 | ----------------------------- | -------- | --------- | ----------------------------------------------------------------- |
 | `DBIP_ENABLED`                | no       | `true`    | Use DB-IP Lite. No account required.                              |
 | `IPLOCATE_ENABLED`            | no       | `true`    | Use IPLocate's IP-to-Country and IP-to-ASN. No account required.  |
-| `IPFIRE_ENABLED`              | no       | `true`    | Use the IPFire Location database. No account required.            |
-| `IP_LOCATION_DB_ENABLED`      | no       | `true`    | Use ip-location-db's user-country. No account required.           |
 | `RIPE_ENABLED`                | no       | `true`    | Use RIPE's registered countries. No account; locates nothing.     |
 | `GEOFEEDS_ENABLED`            | no       | `true`    | Use the operators' geofeeds RIPE's records link to. Needs RIPE.   |
 | `MAXMIND_ACCOUNT_ID`          | no       | —         | MaxMind account ID. Set together with the license key, or neither.|
@@ -445,8 +441,8 @@ docker compose up -d --build
 ```
 
 No credentials are needed to start: the no-account sources are downloaded on
-first run — about 435 MB, of which RIPE's 260 MB is read as it streams and not
-kept, and 295 MB on the data volume. Watch it come up with
+first run — about 520 MB, of which RIPE's 260 MB is read as it streams and not
+kept, and 350 MB on the data volume. Watch it come up with
 `docker compose logs -f backend`, or wait for the container to report healthy.
 
 With the default `HOST=0.0.0.0` / `PORT=80`:
@@ -474,7 +470,12 @@ nothing.
 
 Every source here is its own dataset. Services that repackage one beacon
 already reads — RIPEstat's geolocation is MaxMind's, and several projects
-republish GeoLite2 and DB-IP — are deliberately not used.
+republish GeoLite2 and DB-IP — are deliberately not used. IPFire Location and
+ip-location-db were used and dropped for the same reason: their country is the
+registries' records and the operators' geofeeds, which the RIPE and Geofeeds
+sources read first-hand. Compared over a million addresses, IPFire's country
+matched RIPE's registration 99.1% of the time, and ip-location-db matched the
+geofeeds 99.7% of the time wherever a feed answered.
 
 **DB-IP Lite** — City and ASN, free, no account, CC-BY 4.0, published monthly
 at a month-stamped URL. beacon asks for the current month and falls back to the
@@ -509,22 +510,6 @@ network's organisation), free, no account, CC BY-SA 4.0, rebuilt daily. They
 are published through Git LFS, so the pointer file in the repository carries
 each database's SHA-256 and size: one small request says whether anything
 changed, and anything downloaded is checked against it.
-
-**IPFire Location** — country, ASN, and flags for anycast, satellite and
-anonymous-proxy networks, the only free source of those three. Free, no
-account, CC BY-SA 4.0, rebuilt daily. It is the libloc format rather than
-MMDB, read by beacon directly from a memory map. The file is signed by IPFire,
-and a database that does not verify against IPFire's key is never installed.
-Refreshes are conditional requests, so an unchanged database costs a 304.
-Decompression holds about 65 MiB for the moment it runs, because IPFire
-compresses with a 64 MiB dictionary. A stream asking for more than 128 MiB is
-refused before decoding starts.
-
-**ip-location-db** — `user-country` from sapics/ip-location-db: country codes
-only, public domain (PDDL), rebuilt daily from RIR allocation statistics, BGP
-routing archives and operators' geofeeds, with no WHOIS data and nothing from
-MaxMind or DB-IP. Checked against the SHA-256 published beside it. The project's
-GeoLite2 and DB-IP republications are not used.
 
 **RIPE Database** — the country each address block is registered to, from the
 registry's own records for its region: Europe, the Middle East and Central
@@ -561,7 +546,7 @@ only from public addresses: the links come from records anyone can create, and
 one pointing at this host's own network is refused. Feeds carry no licence of
 their own: publishing one is how a network asks location services to use it.
 
-IPinfo's, IPLocate's and ip-location-db's files are MMDB with flat records
+IPinfo's and IPLocate's files are MMDB with flat records
 rather than the GeoIP2 layout, and are read with `maxminddb-golang` directly:
 `geoip2-golang` opens them without complaint and returns an empty record for
 every address.
@@ -687,7 +672,7 @@ backend/                  Go service
   main.go                 HTTP server, content negotiation, frontend proxy
   internal/config         env config and validation
   internal/browser        navigation vs. tool detection (Fetch Metadata, UA)
-  internal/geoip          providers, registry, refresh loop, mmdb, libloc and RIPE readers
+  internal/geoip          providers, registry, refresh loop, mmdb readers, RIPE and geofeed indexes
     testdata/mmdbgen      writes the test .mmdb fixtures; its own module
   internal/rdns           bounded, cached reverse-DNS lookups
   internal/render         JSON (v1/v2) / plain-text response shaping
@@ -721,13 +706,6 @@ IP address data powered by [IPinfo](https://ipinfo.io), licensed under
 
 IP address data powered by [IPLocate.io](https://www.iplocate.io), licensed
 under [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/).
-
-Location data from the [IPFire Location](https://location.ipfire.org) database,
-licensed under [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/).
-
-Country data from [ip-location-db](https://github.com/sapics/ip-location-db),
-in the public domain under the
-[PDDL](https://opendatacommons.org/licenses/pddl/1-0/).
 
 Registration data from the
 [RIPE Database](https://www.ripe.net/manage-ips-and-asns/db/), subject to the

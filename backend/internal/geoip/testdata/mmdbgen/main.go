@@ -6,8 +6,8 @@
 //	cd backend/internal/geoip/testdata/mmdbgen && go run .
 //
 // The records mirror the shapes the real files use, checked against live
-// downloads: IPLocate's and ip-location-db's records are flat maps, not the
-// nested GeoIP2 layout, and IPLocate's "asn" is a decimal string.
+// downloads: IPLocate's and IPinfo's records are flat maps, not the nested
+// GeoIP2 layout, and IPLocate's "asn" is a decimal string.
 package main
 
 import (
@@ -80,12 +80,6 @@ func main() {
 			"continent":      mmdbtype.String("Asia"),
 			"continent_code": mmdbtype.String("AS"),
 		}},
-	})
-
-	write("ip-location-db-user-country.mmdb", []entry{
-		{"8.8.8.0/24", mmdbtype.Map{"country_code": mmdbtype.String("US")}},
-		{"77.88.8.0/24", mmdbtype.Map{"country_code": mmdbtype.String("RU")}},
-		{"2a01:4f8::/32", mmdbtype.Map{"country_code": mmdbtype.String("DE")}},
 	})
 }
 

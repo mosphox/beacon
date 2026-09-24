@@ -1,10 +1,14 @@
 package geoip
 
 import (
+	"encoding/binary"
 	"math"
 	"net/netip"
 	"slices"
 )
+
+// be is the byte order of every index beacon writes.
+var be = binary.BigEndian
 
 // The range indexes — RIPE's registrations, the operators' geofeeds — are
 // built the same way: address ranges that nest, each carrying a value, flattened

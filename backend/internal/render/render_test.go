@@ -543,17 +543,17 @@ func TestPointFormatsAreNumbers(t *testing.T) {
 // ------------------------------------------------ sources of mixed precision
 
 // Country-level sources agreeing with a city-level one add nothing to the line:
-// they fold into it, whatever they call the country — IPFire's "United States
-// of America", or no name at all from a source that reports only codes.
+// they fold into it, whatever they call the country — "United States of
+// America", or no name at all from a source that reports only codes.
 func TestPlainTextCountryOnlySourcesFoldIntoTheCity(t *testing.T) {
 	answers := []geoip.Answer{
 		{Source: "DB-IP", Record: full()},
 		{Source: "IPLocate", Record: geoip.Record{CountryCode: "US", Country: "United States", HasData: true}},
-		{Source: "IPFire", Record: geoip.Record{
+		{Source: "IPinfo", Record: geoip.Record{
 			CountryCode: "US", Country: "United States of America",
-			ASN: 15169, ASNOrg: "Google LLC", IsAnycast: true, HasData: true,
+			ASN: 15169, ASNOrg: "Google LLC", HasData: true,
 		}},
-		{Source: "ip-location-db", Record: geoip.Record{CountryCode: "US", HasData: true}},
+		{Source: "Geofeeds", Record: geoip.Record{CountryCode: "US", HasData: true}},
 	}
 	resp := New("8.8.8.8", "", answers)
 	want := "8.8.8.8 Mountain View [US] United States AS15169 (GOOGLE)\n"
@@ -568,19 +568,19 @@ func TestPlainTextCountryOnlySourcesFoldIntoTheCity(t *testing.T) {
 // A dissent from a source that names no country shows the code; if another
 // source names that country, the name is borrowed so both read the same.
 func TestPlainTextCodeOnlyDissent(t *testing.T) {
-	codeOnly := geoip.Answer{Source: "ip-location-db", Record: geoip.Record{CountryCode: "RU", HasData: true}}
+	codeOnly := geoip.Answer{Source: "Geofeeds", Record: geoip.Record{CountryCode: "RU", HasData: true}}
 
 	got := New("8.8.8.8", "", []geoip.Answer{{Source: "DB-IP", Record: full()}, codeOnly}).PlainText()
-	want := "8.8.8.8 Mountain View [US] United States [DB-IP] / [RU] [ip-location-db] AS15169 (GOOGLE)\n"
+	want := "8.8.8.8 Mountain View [US] United States [DB-IP] / [RU] [Geofeeds] AS15169 (GOOGLE)\n"
 	if got != want {
 		t.Errorf("PlainText()\n got %q\nwant %q", got, want)
 	}
 
-	named := geoip.Answer{Source: "IPFire", Record: geoip.Record{
+	named := geoip.Answer{Source: "IPLocate", Record: geoip.Record{
 		CountryCode: "RU", Country: "Russian Federation", HasData: true,
 	}}
 	got = New("8.8.8.8", "", []geoip.Answer{{Source: "DB-IP", Record: full()}, named, codeOnly}).PlainText()
-	want = "8.8.8.8 Mountain View [US] United States [DB-IP] / [RU] Russian Federation [IPFire, ip-location-db] AS15169 (GOOGLE)\n"
+	want = "8.8.8.8 Mountain View [US] United States [DB-IP] / [RU] Russian Federation [IPLocate, Geofeeds] AS15169 (GOOGLE)\n"
 	if got != want {
 		t.Errorf("PlainText()\n got %q\nwant %q", got, want)
 	}
@@ -692,7 +692,7 @@ func TestCodeOnlyRegion(t *testing.T) {
 
 func TestV2SourcesSayWhatTheyProvide(t *testing.T) {
 	answers := []geoip.Answer{
-		{Source: "IPFire", Record: geoip.Record{CountryCode: "US", HasData: true},
+		{Source: "IPinfo", Record: geoip.Record{CountryCode: "US", HasData: true},
 			Provides: geoip.FieldCountry | geoip.FieldASN | geoip.FieldAnycast},
 		{Source: "Unknown", Record: geoip.Record{CountryCode: "US", HasData: true}},
 	}
@@ -738,7 +738,7 @@ func TestAgreementIsReportedPerHalf(t *testing.T) {
 	yandex.ASN, yandex.ASNOrg = 13238, "YANDEX LLC"
 	answers := []geoip.Answer{
 		{Source: "DB-IP", Record: yandex},
-		{Source: "IPFire", Record: geoip.Record{
+		{Source: "IPLocate", Record: geoip.Record{
 			CountryCode: "US", Country: "United States", ASN: 208398, HasData: true,
 		}},
 	}

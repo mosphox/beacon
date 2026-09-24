@@ -26,10 +26,8 @@ type Config struct {
 	MaxMindLicenseKey string
 	DBIPEnabled       bool
 
-	// The other no-account sources, each on unless switched off.
-	IPLocateEnabled     bool
-	IPFireEnabled       bool
-	IPLocationDBEnabled bool
+	// The other no-account source, on unless switched off.
+	IPLocateEnabled bool
 
 	// RIPE reports the country an address is registered to, never where it
 	// is, so on its own it does not count as a GeoIP source.
@@ -88,8 +86,6 @@ func Load() (Config, error) {
 	}{
 		{"DBIP_ENABLED", &cfg.DBIPEnabled},
 		{"IPLOCATE_ENABLED", &cfg.IPLocateEnabled},
-		{"IPFIRE_ENABLED", &cfg.IPFireEnabled},
-		{"IP_LOCATION_DB_ENABLED", &cfg.IPLocationDBEnabled},
 		{"RIPE_ENABLED", &cfg.RIPEEnabled},
 		{"GEOFEEDS_ENABLED", &cfg.GeofeedsEnabled},
 	} {
@@ -108,12 +104,12 @@ func Load() (Config, error) {
 		}
 	}
 
-	// RIPE is left out: it places nothing, and a service it alone answered
-	// for would report every address as unlocated.
-	if !cfg.DBIPEnabled && !cfg.IPLocateEnabled && !cfg.IPFireEnabled && !cfg.IPLocationDBEnabled &&
-		cfg.MaxMindAccountID == "" && cfg.IPinfoToken == "" {
+	// RIPE and the geofeeds are left out: RIPE places nothing, and the feeds
+	// cover a sliver of the address space, so a service they alone answered
+	// for would report nearly every address as unlocated.
+	if !cfg.DBIPEnabled && !cfg.IPLocateEnabled && cfg.MaxMindAccountID == "" && cfg.IPinfoToken == "" {
 		return Config{}, fmt.Errorf("no GeoIP source enabled: set MAXMIND_* credentials or IPINFO_TOKEN, " +
-			"or leave one of DBIP_ENABLED, IPLOCATE_ENABLED, IPFIRE_ENABLED, IP_LOCATION_DB_ENABLED on")
+			"or leave DBIP_ENABLED or IPLOCATE_ENABLED on")
 	}
 
 	cfg.UpdatePeriodHours = defaultUpdatePeriodHours

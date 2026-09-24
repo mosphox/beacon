@@ -52,27 +52,6 @@ func TestIPLocateReadsFlatRecords(t *testing.T) {
 	}
 }
 
-func TestIPLocationDBReportsTheCodeAlone(t *testing.T) {
-	p := NewIPLocationDB("testdata", nil)
-	if err := p.Open(); err != nil {
-		t.Fatal(err)
-	}
-	defer p.Close()
-
-	for ip, want := range map[string]Record{
-		// A code and nothing else: the source names no country, so beacon
-		// does not name one on its behalf.
-		"8.8.8.8":     {CountryCode: "US", HasData: true},
-		"77.88.8.8":   {CountryCode: "RU", HasData: true},
-		"2a01:4f8::1": {CountryCode: "DE", HasData: true},
-		"10.0.0.1":    {},
-	} {
-		if got := p.Lookup(net.ParseIP(ip)); !reflect.DeepEqual(got, want) {
-			t.Errorf("%s: got %+v, want %+v", ip, got, want)
-		}
-	}
-}
-
 func TestParseLFSPointer(t *testing.T) {
 	hash := strings.Repeat("ab", 32)
 	good := "version https://git-lfs.github.com/spec/v1\noid sha256:" + strings.ToUpper(hash) + "\nsize 17068536\n"
@@ -215,58 +194,6 @@ func TestIPLocateRejectsAnObjectThatDoesNotMatchItsPointer(t *testing.T) {
 				t.Errorf("temp files left behind: %v", left)
 			}
 		})
-	}
-}
-
-func TestIPLocationDBDownloadChecksTheChecksum(t *testing.T) {
-	db := []byte("user-country v1")
-	sum := sha256Hex(db)
-	var fetches atomic.Int32
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case "/sum":
-			fmt.Fprintf(w, "%s  user-country.mmdb\n", sum)
-		case "/db":
-			fetches.Add(1)
-			w.Write(db)
-		default:
-			http.NotFound(w, r)
-		}
-	}))
-	defer srv.Close()
-
-	dir := t.TempDir()
-	p := NewIPLocationDB(dir, srv.Client())
-	p.url, p.sumURL = srv.URL+"/db", srv.URL+"/sum"
-
-	if err := p.Download(); err != nil {
-		t.Fatalf("first download: %v", err)
-	}
-	if b, _ := os.ReadFile(p.path()); string(b) != "user-country v1" {
-		t.Errorf("installed %q", b)
-	}
-
-	fetches.Store(0)
-	if err := p.Download(); !errors.Is(err, errNotModified) {
-		t.Errorf("unchanged checksum: got %v, want errNotModified", err)
-	}
-	if n := fetches.Load(); n != 0 {
-		t.Errorf("fetched the database %d times for an unchanged checksum", n)
-	}
-
-	// The checksum moves on but the file has not yet: the gap between the two
-	// release uploads. The installed file must survive it.
-	sum = strings.Repeat("0", 64)
-	if err := p.Download(); err == nil {
-		t.Fatal("installed a database that does not match its checksum")
-	}
-	if b, _ := os.ReadFile(p.path()); string(b) != "user-country v1" {
-		t.Errorf("installed file = %q after a failed update, want the previous one", b)
-	}
-
-	sum = "not a checksum"
-	if err := p.Download(); err == nil {
-		t.Error("accepted a checksum file with no checksum in it")
 	}
 }
 

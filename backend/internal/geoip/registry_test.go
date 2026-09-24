@@ -300,8 +300,6 @@ func TestProvidersDeclareWhatTheyCover(t *testing.T) {
 		{NewMaxMind("id", "key", "", nil), AllFields, 0},
 		{NewDBIP("", nil), FieldCity | FieldCoordinates | FieldEuropeanUnion, FieldPostalCode | FieldTimeZone | FieldAnycast},
 		{NewIPLocate("", nil), FieldCountry | FieldContinent | FieldASNOrg, FieldCity | FieldEuropeanUnion | FieldAnycast},
-		{NewIPFire("", nil), FieldCountry | FieldAnycast | FieldSatelliteProvider, FieldCity | FieldEuropeanUnion},
-		{NewIPLocationDB("", nil), FieldCountry, FieldContinent | FieldASN},
 		{NewIPinfo("t", "", nil), FieldCountry | FieldContinent | FieldASNOrg, FieldCity | FieldEuropeanUnion | FieldAnycast},
 		// A registration, never a location.
 		{NewRIPE("", nil), FieldRegisteredCountry, FieldCountry | FieldContinent | FieldCity | FieldASN},

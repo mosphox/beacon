@@ -16,6 +16,9 @@ import (
 const (
 	ipinfoURL    = "https://ipinfo.io/data/ipinfo_lite.mmdb"
 	ipinfoSumURL = "https://ipinfo.io/data/ipinfo_lite.mmdb/checksums"
+
+	// {"checksums": {"md5": "…", "sha1": "…", "sha256": "…"}}, a few hundred bytes.
+	maxChecksumBytes = 1024
 )
 
 // IPinfo serves IPinfo Lite: country, continent and autonomous system, from

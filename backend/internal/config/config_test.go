@@ -59,9 +59,9 @@ func TestNoAccountSourcesAreOnByDefault(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if !cfg.DBIPEnabled || !cfg.IPLocateEnabled || !cfg.IPFireEnabled || !cfg.IPLocationDBEnabled || !cfg.RIPEEnabled {
-		t.Errorf("defaults: DB-IP %v, IPLocate %v, IPFire %v, ip-location-db %v, RIPE %v; want all on",
-			cfg.DBIPEnabled, cfg.IPLocateEnabled, cfg.IPFireEnabled, cfg.IPLocationDBEnabled, cfg.RIPEEnabled)
+	if !cfg.DBIPEnabled || !cfg.IPLocateEnabled || !cfg.RIPEEnabled {
+		t.Errorf("defaults: DB-IP %v, IPLocate %v, RIPE %v; want all on",
+			cfg.DBIPEnabled, cfg.IPLocateEnabled, cfg.RIPEEnabled)
 	}
 
 	if !cfg.GeofeedsEnabled {
@@ -76,23 +76,22 @@ func TestNoAccountSourcesAreOnByDefault(t *testing.T) {
 }
 
 func TestSwitchingEverySourceOffIsRefused(t *testing.T) {
-	for _, env := range []string{"DBIP_ENABLED", "IPLOCATE_ENABLED", "IPFIRE_ENABLED", "IP_LOCATION_DB_ENABLED"} {
+	for _, env := range []string{"DBIP_ENABLED", "IPLOCATE_ENABLED"} {
 		t.Setenv(env, "false")
 	}
-	// RIPE is still on, and does not count: it locates nothing.
+	// RIPE and the geofeeds are still on, and do not count.
 	if _, err := Load(); err == nil {
 		t.Fatal("Load succeeded with no GeoIP source at all")
 	}
 
 	// Any one source is enough.
-	t.Setenv("IPFIRE_ENABLED", "true")
+	t.Setenv("IPLOCATE_ENABLED", "true")
 	cfg, err := Load()
 	if err != nil {
-		t.Fatalf("Load with only IPFire on: %v", err)
+		t.Fatalf("Load with only IPLocate on: %v", err)
 	}
-	if cfg.DBIPEnabled || cfg.IPLocateEnabled || !cfg.IPFireEnabled || cfg.IPLocationDBEnabled {
-		t.Errorf("got DB-IP %v, IPLocate %v, IPFire %v, ip-location-db %v",
-			cfg.DBIPEnabled, cfg.IPLocateEnabled, cfg.IPFireEnabled, cfg.IPLocationDBEnabled)
+	if cfg.DBIPEnabled || !cfg.IPLocateEnabled {
+		t.Errorf("got DB-IP %v, IPLocate %v", cfg.DBIPEnabled, cfg.IPLocateEnabled)
 	}
 }
 
@@ -124,7 +123,7 @@ func TestIPinfoTokenRefusesAURL(t *testing.T) {
 }
 
 func TestIPinfoAloneIsEnough(t *testing.T) {
-	for _, env := range []string{"DBIP_ENABLED", "IPLOCATE_ENABLED", "IPFIRE_ENABLED", "IP_LOCATION_DB_ENABLED"} {
+	for _, env := range []string{"DBIP_ENABLED", "IPLOCATE_ENABLED"} {
 		t.Setenv(env, "false")
 	}
 	t.Setenv("IPINFO_TOKEN", "abc123")

@@ -121,8 +121,8 @@ const NO_FLAGS = { anycast: false, anonymous_proxy: false, satellite_provider: f
 /**
  * What each source provides, as the backend declares it. The fixtures only ever fill
  * these fields for a source, so the page meets the same mix of precision it does in
- * production: a city from DB-IP, a bare country code from ip-location-db and RIPE, and
- * codes with a city from the geofeeds.
+ * production: a city from DB-IP, a bare registered-country code from RIPE, and codes with
+ * a city from the geofeeds.
  */
 const PROVIDES = {
   MaxMind: [
@@ -155,16 +155,6 @@ const PROVIDES = {
   ],
   IPinfo: ['country', 'continent', 'asn', 'asn_org'],
   IPLocate: ['country', 'continent', 'asn', 'asn_org'],
-  IPFire: [
-    'country',
-    'continent',
-    'asn',
-    'asn_org',
-    'anycast',
-    'anonymous_proxy',
-    'satellite_provider',
-  ],
-  'ip-location-db': ['country'],
   RIPE: ['registered_country'],
   Geofeeds: ['city', 'region', 'country'],
 } satisfies Record<string, Provides[]>;
@@ -187,7 +177,7 @@ function source(
   const provides: Provides[] = PROVIDES[name];
   const has = (k: Provides) => provides.includes(k);
   // These give codes, not names: the page names them.
-  const codesOnly = name === 'ip-location-db' || name === 'Geofeeds';
+  const codesOnly = name === 'Geofeeds';
   return {
     source: name,
     provides,
@@ -299,15 +289,13 @@ const FIXTURES: Fixture[] = [
       source('DB-IP', TBILISI(), net(35805, 'JSC Silknet')),
       source('IPinfo', TBILISI(), net(35805, 'JSC Silknet')),
       source('IPLocate', TBILISI(), net(35805, 'JSC "Silknet"')),
-      source('IPFire', TBILISI(), net(35805, 'JSC "Silknet"')),
-      source('ip-location-db', TBILISI()),
       source('RIPE', TBILISI()),
       source('Geofeeds', TBILISI()),
     ],
   },
   {
     // Sources disagreeing — beacon's differentiator, and awkward to reproduce on demand.
-    // IPFire spells the country its own way, which must not read as a disagreement.
+    // IPinfo spells the country its own way here, which must not read as a disagreement.
     ip: '8.8.8.8',
     family: 'ipv4',
     hostname: 'dns.google',
@@ -317,12 +305,10 @@ const FIXTURES: Fixture[] = [
       source('DB-IP', PHOENIX(), net(15169, 'Google LLC')),
       source('IPLocate', MOUNTAIN_VIEW(), net(15169, 'Google LLC')),
       source(
-        'IPFire',
+        'IPinfo',
         { ...MOUNTAIN_VIEW(), country: 'United States of America' },
         net(15169, 'Google LLC'),
-        { anycast: true },
       ),
-      source('ip-location-db', MOUNTAIN_VIEW()),
     ],
   },
   {
@@ -349,8 +335,8 @@ const FIXTURES: Fixture[] = [
     agree: false,
     sources: [
       source('MaxMind', BRISBANE(), net(13335, 'CLOUDFLARENET'), { anycast: true }),
-      source('IPFire', BRISBANE(), net(13335, 'Cloudflare, Inc.'), { anycast: true }),
-      source('ip-location-db', location({ country_code: 'US' })),
+      source('IPLocate', BRISBANE(), net(13335, 'Cloudflare, Inc.')),
+      source('Geofeeds', location({ country_code: 'US' })),
     ],
   },
 ];

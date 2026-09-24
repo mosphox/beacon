@@ -701,12 +701,12 @@ button.ip {
 
   /* The prefix stands in for the column header, so it gets the column's width back:
      fixed here, the values line up down the block the way they would in the table. */
-  /* Sized for the longest source name, "ip-location-db", with the padding as a floor so a
-     longer one can never run into its value. */
+  /* Sized for the longest source names, "Geofeeds" and "IPLocate", with the padding as a
+     floor so a longer one can never run into its value. */
   .compare td::before {
     content: attr(data-source);
     display: inline-block;
-    min-width: 5.75rem;
+    min-width: 4.5rem;
     padding-right: 8px;
     font-family: var(--font-outfit), sans-serif;
     font-style: normal;

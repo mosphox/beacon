@@ -270,10 +270,9 @@ func locationSegment(r geoip.Record, names map[string]string) string {
 // countryNames settles one display name per country code: the name given by
 // the first source, in priority order, that gives one.
 //
-// Sources name countries differently — IPFire says "United States of America"
-// and "Russian Federation" where DB-IP says "United States" and "Russia" — and
-// one reports only codes. Grouping on names would report a spelling as a
-// disagreement about where the address is. The per-source entries in JSON keep
+// Sources can spell the same country differently, and the geofeeds report
+// only codes. Grouping on names would report a spelling as a disagreement
+// about where the address is. The per-source entries in JSON keep
 // each source's own spelling; this is only for comparing and displaying them
 // side by side.
 func (resp Response) countryNames() map[string]string {

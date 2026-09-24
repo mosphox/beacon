@@ -54,12 +54,10 @@ services:
       - TLS_LISTEN_ADDR=${TLS_LISTEN_ADDR:-:8443}
       - FRONTEND_URL=${FRONTEND_URL-http://frontend:3000}
       - GEOIP_UPDATE_INTERVAL_HOURS=${GEOIP_UPDATE_INTERVAL_HOURS:-12}
-      # GeoIP sources. These six need no account; MaxMind and IPinfo are
+      # GeoIP sources. These four need no account; MaxMind and IPinfo are
       # optional. RIPE gives the registered country only; geofeeds need RIPE.
       - DBIP_ENABLED=${DBIP_ENABLED:-true}
       - IPLOCATE_ENABLED=${IPLOCATE_ENABLED:-true}
-      - IPFIRE_ENABLED=${IPFIRE_ENABLED:-true}
-      - IP_LOCATION_DB_ENABLED=${IP_LOCATION_DB_ENABLED:-true}
       - RIPE_ENABLED=${RIPE_ENABLED:-true}
       - GEOFEEDS_ENABLED=${GEOFEEDS_ENABLED:-true}
       - MAXMIND_ACCOUNT_ID=${MAXMIND_ACCOUNT_ID:-}

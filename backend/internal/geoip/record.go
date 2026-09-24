@@ -87,9 +87,9 @@ var continentNames = map[string]string{
 }
 
 // countryCode returns cc upper-cased if it names a country, and "" for the
-// codes some datasets put in that field instead. IPFire's data carries "EU" and
-// "AP" for allocations made to a whole region, "ZZ" for unknown and zero bytes
-// for none; older GeoIP data used "A1"–"A3" and "O1". Reporting any of them as
+// codes some datasets put in that field instead. Registry data carries "EU" and
+// "AP" for allocations made to a whole region, geofeeds "ZZ" for unknown, and
+// older GeoIP data used "A1"–"A3" and "O1". Reporting any of them as
 // a country would place a network somewhere that does not exist.
 func countryCode(cc string) string {
 	cc = strings.ToUpper(cc)

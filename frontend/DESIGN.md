@@ -227,8 +227,9 @@ way to tell whose numbers those were. When there is more than one source, every 
 and network field now sits in a column with a name on it.
 
 **A source is compared only on what it covers.** The sources differ in precision, not
-just in opinion: MaxMind has postal codes and DB-IP Lite has none for any address; IPLocate
-and IPFire know the country and not the city; ip-location-db gives a bare country code.
+just in opinion: MaxMind has postal codes and DB-IP Lite has none for any address; IPinfo
+and IPLocate know the country and not the city; the geofeeds name a city, but only for the
+ranges networks publish them for.
 Each source says what it covers (`provides` in the response), and the comparison honours
 it. Otherwise the marker loses its meaning: with five sources, a country-only database's
 empty "Coordinates" cell would put a `--warn` edge on nearly every row whether anyone
@@ -262,9 +263,9 @@ Country names are shown one way per code — the first source's spelling, or the
 own name for a code no source names. A region given as a code alone takes the name a
 source uses for the same code in the same country, and stays unnamed otherwise. Values
 are compared without case or accents, so a geofeed's plain-ASCII "Malmo" does not mark a
-row against "Malmö". IPFire says "United States of America" where DB-IP
-says "United States", and comparing the text would present a spelling as a disagreement
-about where the visitor is. The JSON keeps every source's own spelling; the table compares
+row against "Malmö". One source can say "United States of America" where another says
+"United States", and comparing the text would present a spelling as a disagreement about
+where the visitor is. The JSON keeps every source's own spelling; the table compares
 places, not orthography.
 
 The connection's flags are assertions by particular databases, so "Marked as" says whose,
