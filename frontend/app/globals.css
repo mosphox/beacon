@@ -33,9 +33,9 @@
   --warn: #f59e0b;
 
   --gutter: 16px;
-  /* Three quarters of the viewport where that is wider than 720px: the comparison tables
-     set up to seven sources side by side, and at 720px their values wrap. Prose inside
-     keeps its own 68ch measure however wide this gets. */
+  /* Three quarters of the viewport where that is wider than 720px: the source ledgers sit
+     side by side, as many as fit, and at 720px only two do. Prose inside keeps its own
+     68ch measure however wide this gets. */
   --measure: max(720px, 75vw);
 }
 
@@ -409,11 +409,14 @@ button.ip {
    there is no honest way to do that — a flat colour reads as a bar pasted on the page,
    and repainting the page's own background matches everywhere except the edges of the
    heading's own box. The bar was worse than the missing landmark. */
+/* The note drops under the heading where the two do not fit a line, rather than both
+   wrapping into a column each. */
 .section-head {
   display: flex;
+  flex-wrap: wrap;
   align-items: baseline;
   justify-content: space-between;
-  gap: 16px;
+  gap: 4px 16px;
   padding-bottom: 8px;
   border-bottom: 1px solid var(--rule-strong);
 }
@@ -565,158 +568,208 @@ button.ip {
   color: var(--ink-3);
 }
 
-/* ------------------------------------------------------ source comparison */
+/* ------------------------------------------------------------------ ledgers */
 
-/* Sources side by side, one column each. This is the page's reason to exist, so the
-   disagreement gets a real table: two databases claiming different cities is a
-   two-dimensional fact and reads as one only when the columns line up. */
-.compare {
-  width: 100%;
-  margin-top: 8px;
-  border-collapse: collapse;
-  text-align: left;
+/* Each source's whole answer in one ledger, and the ledgers side by side. A ledger lists
+   only what its source covers, so nothing in one is a placeholder; the rows line up
+   across ledgers anyway, because the fields come in one order in every one of them (see
+   LEDGER_FIELDS) and the ledgers in a row of the grid share their row lines.
+
+   The container is the readout, not the viewport: the question is how many ledgers fit
+   in the width they are actually given. */
+.ledgers {
+  container: ledgers / inline-size;
+  /* Every ledger opens with 32px above its name, which is what spaces one row of ledgers
+     from the next. The first row sits under the section heading instead, 20px down. */
+  margin-top: -12px;
 }
 
-.compare thead th {
-  padding: 0 0 8px;
-  font-family: var(--font-outfit), sans-serif;
-  font-size: 0.75rem;
-  font-weight: 400;
-  color: var(--accent);
+/* How many fit side by side: 17.5rem each holds "Autonomous system" and a pair of
+   coordinates without wrapping either, and they sit 24px apart. The thresholds are
+   k × 17.5rem + (k − 1) × 24px. */
+.ledger-grid {
+  --ledger-min: 17.5rem;
+  --ledger-gap: 24px;
+  --fit: 1;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, var(--ledger-min)), 1fr));
+  column-gap: var(--ledger-gap);
+  /* No row gap: a ledger spans a row line per field of the longest one, most of them
+     empty in the shorter ledgers, and a gap would open under every empty one. */
+  row-gap: 0;
+}
+
+@container ledgers (min-width: 36.5rem) {
+  .ledger-grid {
+    --fit: 2;
+  }
+}
+
+@container ledgers (min-width: 55.5rem) {
+  .ledger-grid {
+    --fit: 3;
+  }
+}
+
+@container ledgers (min-width: 74.5rem) {
+  .ledger-grid {
+    --fit: 4;
+  }
+}
+
+@container ledgers (min-width: 93.5rem) {
+  .ledger-grid {
+    --fit: 5;
+  }
+}
+
+@container ledgers (min-width: 112.5rem) {
+  .ledger-grid {
+    --fit: 6;
+  }
+}
+
+@container ledgers (min-width: 131.5rem) {
+  .ledger-grid {
+    --fit: 7;
+  }
+}
+
+@container ledgers (min-width: 150.5rem) {
+  .ledger-grid {
+    --fit: 8;
+  }
+}
+
+/* As few rows as fit them, then as few columns as fill those rows: six ledgers where four
+   would fit go three and three rather than four and two, and two where three would fit
+   take half the width each instead of leaving a third of it empty. The columns are then
+   exactly that many, filling the width between them. Without round() the grid falls back
+   to as many as fit, which can leave the last row short. */
+@supports (width: round(up, 1.5px, 1px)) {
+  .ledger-grid {
+    --rows: round(up, var(--n) / var(--fit), 1);
+    --cols: round(up, var(--n) / var(--rows), 1);
+    /* The 1px keeps rounding from ever dropping a column. */
+    grid-template-columns: repeat(
+      auto-fill,
+      minmax(calc((100% - (var(--cols) - 1) * var(--ledger-gap)) / var(--cols) - 1px), 1fr)
+    );
+  }
+}
+
+/* A ledger spans one row line for its name and one per field of the longest ledger, and
+   takes those lines from the grid rather than drawing its own. So the ledgers in a row
+   share them: a name that wraps in one ledger moves the rules under it in all of them. */
+.ledger {
+  display: grid;
+  grid-row: span var(--span);
+  grid-template-rows: subgrid;
+  grid-template-columns: minmax(0, 1fr);
+  min-width: 0;
+}
+
+/* The kind follows the name rather than sitting at the far edge: a lone ledger is the
+   whole readout wide, and the two would end up a screen apart. */
+.ledger-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: 12px;
+  padding: 32px 0 8px;
   border-bottom: 1px solid var(--rule-strong);
-  vertical-align: bottom;
 }
 
-.compare tbody tr + tr th,
-.compare tbody tr + tr td {
+.ledger-name {
+  font-size: 0.875rem;
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--accent);
+}
+
+.ledger-kind {
+  font-size: 0.75rem;
+  font-weight: 300;
+  line-height: 1.4;
+  color: var(--ink-3);
+}
+
+.ledger-rows {
+  display: grid;
+  grid-row: 2 / -1;
+  grid-template-rows: subgrid;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+/* 7.5rem holds "Autonomous system" on one line. The label and the value are 16px apart,
+   counting the value's own edge and padding, which is where a difference is marked. */
+.ledger-row {
+  display: grid;
+  grid-template-columns: 7.5rem minmax(0, 1fr);
+  column-gap: 7px;
+  align-items: baseline;
+  padding: 8px 0;
+}
+
+/* Between rows, never after the last one, as in every other table on the page. Where the
+   ledger moves on from the network to the place, and from the place to the registration,
+   the rule is the strong one. */
+.ledger-row + .ledger-row {
   border-top: 1px solid var(--rule);
 }
 
-.compare tbody th {
-  width: 8.5rem;
-  padding: 10px 24px 10px 10px;
-  /* Reserved at every row so marking one shifts nothing. */
-  border-left: 2px solid transparent;
-  font-size: 0.8125rem;
-  font-weight: 300;
-  color: var(--ink-3);
-  vertical-align: baseline;
-  white-space: nowrap;
+.ledger-row + .ledger-row.opens {
+  border-top-color: var(--rule-strong);
 }
 
-.compare td {
-  padding: 10px 24px 10px 0;
+.ledger-row dt {
+  font-size: 0.8125rem;
+  font-weight: 300;
+  line-height: 1.4;
+  color: var(--ink-3);
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+
+.ledger-row dd {
+  min-width: 0;
+  /* Reserved on every row so marking one shifts nothing. */
+  border-left: 2px solid transparent;
+  padding-left: 7px;
   font-family: var(--font-jetbrains), monospace;
   font-size: 0.8125rem;
   line-height: 1.5;
   color: var(--ink);
-  vertical-align: baseline;
   overflow-wrap: anywhere;
   user-select: text;
-}
-
-.compare td:last-child {
-  padding-right: 0;
-}
-
-/* The disagreement is marked on the row, not painted over the values.
-   Colouring the values themselves was tried first and read backwards: two databases
-   usually differ on most fields, so nearly every cell came out amber and the one
-   agreeing row was the one that stood out. Agreement is the quiet default; the marker
-   is what you scan for. */
-.compare tr.differs th {
-  border-left-color: var(--warn);
-  color: var(--warn);
 }
 
 /* --ink-3, not the --ink-4 the row tables use for an absence. Here the absence is a
    difference — one source has a postal code and the other does not — so it carries
    information and has to clear 4.5:1. */
-.compare td.absent {
+.ledger-row dd.absent {
   font-family: var(--font-outfit), sans-serif;
   font-style: italic;
   color: var(--ink-3);
   user-select: none;
 }
 
-/* A field outside this source's data: not an answer, so not the italic absence above,
-   and not counted when the row is marked. A dash in --ink-4 is a hint and nothing more;
-   the words are there for screen readers, in the cell. */
-.compare td.uncovered {
-  font-family: var(--font-outfit), sans-serif;
-  color: var(--ink-4);
-  user-select: none;
+/* The disagreement is marked on the row, not painted over the values: an edge between
+   the field name and the value, and the name in --warn. Colouring the values was tried
+   first and read backwards — two databases usually differ on most fields, so nearly
+   every value came out amber and the one agreeing row was the one that stood out. It is
+   marked in every ledger the field is in, so it says that some source answers otherwise;
+   the other ledgers say which. */
+.ledger-row.differs dt {
+  color: var(--warn);
 }
 
-/* Three columns of place names do not fit a phone. Same markup, stacked: each value
-   carries its source as a prefix, so the attribution survives losing the columns. */
-@media (max-width: 639px) {
-  .compare,
-  .compare tbody,
-  .compare tr,
-  .compare td {
-    display: block;
-    width: auto;
-  }
-
-  /* Hidden from the eye, kept in the accessibility tree: `display: none` here would
-     take the column headers with it, and they are what attributes each value to a
-     source once the columns are gone. */
-  .compare thead {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip-path: inset(50%);
-    white-space: nowrap;
-  }
-
-  .compare tbody tr + tr {
-    margin-top: 4px;
-    border-top: 1px solid var(--rule);
-  }
-
-  .compare tbody tr + tr th,
-  .compare tbody tr + tr td {
-    border-top: 0;
-  }
-
-  .compare tbody th {
-    display: block;
-    width: auto;
-    padding: 10px 0 2px 10px;
-    white-space: normal;
-  }
-
-  .compare td {
-    padding: 0 0 4px;
-  }
-
-  /* Stacked, every value names its source anyway, so a source with nothing to say about
-     a field simply is not listed under it. The table keeps the dash for column alignment;
-     a list has no columns to keep. */
-  .compare td.uncovered {
-    display: none;
-  }
-
-  /* The prefix stands in for the column header, so it gets the column's width back:
-     fixed here, the values line up down the block the way they would in the table. */
-  /* Sized for the longest source names, "Geofeeds" and "IPLocate", with the padding as a
-     floor so a longer one can never run into its value. */
-  .compare td::before {
-    content: attr(data-source);
-    display: inline-block;
-    min-width: 4.5rem;
-    padding-right: 8px;
-    font-family: var(--font-outfit), sans-serif;
-    font-style: normal;
-    font-size: 0.6875rem;
-    color: var(--accent);
-  }
+.ledger-row.differs dd {
+  border-left-color: var(--warn);
 }
 
-/* Used by the comparison table's empty corner cell, which needs a name for screen
-   readers and nothing at all on screen. */
+/* Text for screen readers only: the words a difference is marked with, which the eye
+   gets from the colour. */
 .sr-only {
   position: absolute;
   width: 1px;

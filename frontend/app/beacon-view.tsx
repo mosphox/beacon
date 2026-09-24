@@ -5,8 +5,9 @@ import { usePathname } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 
 import { AkamaiBreakdown, Ja4Breakdown } from './components/fingerprint';
-import type { CompareRow } from './components/rows';
-import { Chips, Compare, Flag, Group, Row, Rows, Section } from './components/rows';
+import type { Ledger, LedgerRow } from './components/ledgers';
+import { Ledgers } from './components/ledgers';
+import { Chips, Flag, Group, Row, Rows, Section } from './components/rows';
 import type { BeaconResponse, Location, Network, Provides, Source } from '@/lib/types';
 import { PSEUDO_HEADER_NAMES, SETTING_NAMES } from '@/lib/types';
 
@@ -273,8 +274,7 @@ export default function BeaconView() {
           <section className="panel readout-panel" ref={readoutRef}>
             <div className="readout" id="readout" tabIndex={-1}>
               <Connection data={data} />
-              <LocationSection data={data} />
-              <NetworkSection data={data} />
+              <SourcesSection data={data} />
               <TlsSection data={data} showAll={showAll} onExpand={expand} />
               <Http2Section data={data} />
               <Colophon />
@@ -403,116 +403,153 @@ function Connection({ data }: { data: BeaconResponse }) {
   );
 }
 
-/* ----------------------------------------------------------------- location */
+/* ----------------------------------------------------- network and location */
 
 /**
- * The location fields, in two blocks.
+ * One line of a source's ledger.
  *
- * `place` is what a database was asked for; `admin` is what follows from the country it
- * named. Splitting them matters when the sources disagree — two databases can put you in
- * different cities while agreeing on everything in the second block, and running all nine
- * fields together hid that.
- *
- * Each field is a function of a Location so the same list drives both the single-source
- * table and the side-by-side comparison. One definition, two renderings.
- *
- * `needs` is what a source must provide for the field to apply to it at all. Sources
+ * `needs` is what a source must provide for the field to be in its ledger at all. Sources
  * differ in precision — some place an address in a city, some only in a country — and a
- * field outside a source's data is left out of that source's comparison rather than
- * counted as a disagreement.
+ * field outside a source's data is left out of that source's ledger rather than shown
+ * empty, and does not count when deciding whether the sources differ on it.
  */
-type Field<T> = { label: string; of: (v: T) => string | null; needs?: Provides };
+type LedgerField = {
+  key: string;
+  label: string;
+  needs: Provides;
+  topic: 'network' | 'place' | 'registration';
+  of: (l: Location, n: Network) => string | null;
+  /** Left alone by a page translator: an identifier or a name, not a word. */
+  literal?: boolean;
+};
 
-const PLACE_FIELDS: Field<Location>[] = [
-  { label: 'Place', of: (l) => placeOf(l) || null },
-  { label: 'Postal code', needs: 'postal_code', of: (l) => l.postal_code },
-  { label: 'Coordinates', needs: 'coordinates', of: (l) => coordsOf(l) },
+/**
+ * Every ledger's fields, in one order: the network, then the place from the continent
+ * down, then the registration.
+ *
+ * The order is what lines the ledgers up. Each database's fields run unbroken from the top
+ * of the list: IPinfo and IPLocate cover the first four, DB-IP those and the next four,
+ * MaxMind all of them. So a field falls on the same line in every database's ledger with
+ * no gap left for a field a source does not carry — and that holds only while the network
+ * comes first, because it is the one thing every database gives. Putting the place first
+ * leaves IPinfo's operator nine lines above MaxMind's. The geofeeds and the registry cover
+ * too little to line up with anything and are listed in the same order from the top.
+ */
+const LEDGER_FIELDS: LedgerField[] = [
   {
+    key: 'asn',
+    label: 'Autonomous system',
+    needs: 'asn',
+    topic: 'network',
+    of: (_, n) => (n.asn === null ? null : `AS${n.asn}`),
+    literal: true,
+  },
+  {
+    key: 'org',
+    label: 'Operator',
+    needs: 'asn_org',
+    topic: 'network',
+    of: (_, n) => n.asn_org,
+    literal: true,
+  },
+  {
+    key: 'continent',
+    label: 'Continent',
+    needs: 'continent',
+    topic: 'place',
+    of: (l) => l.continent,
+  },
+  {
+    // The name alone: it is one name per code by now (see withPlaceNames).
+    key: 'country',
+    label: 'Country',
+    needs: 'country',
+    topic: 'place',
+    of: (l) => l.country ?? l.country_code,
+  },
+  {
+    key: 'eu',
+    label: 'European Union',
+    needs: 'in_european_union',
+    topic: 'place',
+    of: (l) => (l.country_code ? (l.in_european_union ? 'yes' : 'no') : null),
+  },
+  {
+    // A geofeed gives the region as a code. It is named where another source names the same
+    // code (see withPlaceNames); otherwise the code is the geofeed's answer, shown as one.
+    key: 'region',
+    label: 'Region',
+    needs: 'region',
+    topic: 'place',
+    of: (l) => l.region ?? l.region_code,
+  },
+  { key: 'city', label: 'City', needs: 'city', topic: 'place', of: (l) => l.city },
+  { key: 'coords', label: 'Coordinates', needs: 'coordinates', topic: 'place', of: coordsOf },
+  {
+    key: 'accuracy',
     label: 'Accuracy',
     needs: 'accuracy_radius_km',
+    topic: 'place',
     of: (l) => (l.accuracy_radius_km === null ? null : `±${l.accuracy_radius_km}\u00A0km`),
   },
-  { label: 'Time zone', needs: 'timezone', of: (l) => l.timezone },
   {
+    key: 'postal',
+    label: 'Postal code',
+    needs: 'postal_code',
+    topic: 'place',
+    of: (l) => l.postal_code,
+  },
+  {
+    key: 'tz',
+    label: 'Time zone',
+    needs: 'timezone',
+    topic: 'place',
+    of: (l) => l.timezone,
+    literal: true,
+  },
+  {
+    key: 'clock',
     label: 'Local time',
     needs: 'timezone',
+    topic: 'place',
     of: (l) => (clockOf(l) ? `${clockOf(l)} there` : null),
+  },
+  {
+    // The name alone, as for Country. RIPE gives only the code; withPlaceNames names it.
+    key: 'registered',
+    label: 'Registered to',
+    needs: 'registered_country',
+    topic: 'registration',
+    of: (l) => l.registered_country ?? l.registered_country_code,
   },
 ];
 
-/** A source that can say anything finer than the country belongs in the place table. */
-const PLACE_KEYS: Provides[] = [
+/**
+ * What places an address. A registry places nothing: RIPE names the country an address is
+ * registered to, which for a VPN or a leased range is nowhere near the visitor, so it is
+ * not counted in "N sources agree on the location".
+ */
+const PLACING: Provides[] = [
   'city',
   'region',
   'postal_code',
   'coordinates',
   'accuracy_radius_km',
   'timezone',
+  'country',
 ];
 
-const ADMIN_FIELDS: Field<Location>[] = [
-  {
-    // The name alone: it is one name per code by now (see withCountryNames), and five
-    // columns of "United States (US)" wrap to three lines each.
-    label: 'Country',
-    needs: 'country',
-    of: (l) => l.country ?? l.country_code,
-  },
-  { label: 'Continent', needs: 'continent', of: (l) => l.continent },
-  {
-    label: 'European Union',
-    needs: 'in_european_union',
-    of: (l) => (l.country_code ? (l.in_european_union ? 'yes' : 'no') : null),
-  },
-];
+const places = (s: Source) => PLACING.some((k) => s.provides.includes(k));
 
-/** What the Country table says beyond the country itself. */
-const COUNTRY_EXTRAS: Provides[] = ['continent', 'in_european_union'];
-
-const REGISTRY_FIELDS: Field<Location>[] = [
-  {
-    // The name alone, as for Country. RIPE gives only the code; withCountryNames names it.
-    label: 'Registered to',
-    needs: 'registered_country',
-    of: (l) => l.registered_country ?? l.registered_country_code,
-  },
-];
-
-const applies = (needs: Provides | undefined, provides: Provides[]) =>
-  needs === undefined || provides.includes(needs);
-
-/** One column per source. A field no source provides is not drawn: a row of dashes says nothing. */
-function compareRows<T>(fields: Field<T>[], subjects: T[], provides: Provides[][]): CompareRow[] {
-  return fields.flatMap((f) => {
-    const covered = provides.map((p) => applies(f.needs, p));
-    return covered.some(Boolean) ? [{ label: f.label, values: subjects.map(f.of), covered }] : [];
-  });
-}
-
-function plainRows<T>(fields: Field<T>[], subject: T, provides: Provides[]) {
-  return fields
-    .filter((f) => applies(f.needs, provides))
-    .map((f) => <Row key={f.label} label={f.label} value={f.of(subject)} />);
-}
-
-/** Several sources side by side, one source as plain rows, none as nothing. */
-function sideBySide(fields: Field<Location>[], columns: Column[]) {
-  if (columns.length > 1) {
-    return (
-      <Compare
-        columns={columns.map((c) => c.name)}
-        rows={compareRows(
-          fields,
-          columns.map((c) => c.location),
-          columns.map((c) => c.provides),
-        )}
-      />
-    );
-  }
-  return columns.length === 1 ? (
-    <Rows>{plainRows(fields, columns[0].location, columns[0].provides)}</Rows>
-  ) : null;
-}
+/** What each source is, said beside its name. */
+const SOURCE_KIND: Record<string, string> = {
+  MaxMind: 'location database',
+  'DB-IP': 'location database',
+  IPinfo: 'location database',
+  IPLocate: 'location database',
+  Geofeeds: 'the operator’s own geofeed',
+  RIPE: 'registry',
+};
 
 const LIST = new Intl.ListFormat('en', { style: 'long', type: 'conjunction' });
 
@@ -575,68 +612,105 @@ function regionName(code: string): string | null {
   }
 }
 
-type Column = { name: string; location: Location; provides: Provides[] };
 
-/** The note under the place table, naming the sources that are not in it. */
-function placeNote(fine: Column[], coarse: Column[]): string | undefined {
-  if (fine.length === 0 && coarse.length === 0) {
-    return 'No database places this address. Its registration is below.';
-  }
-  if (fine.length === 0) {
-    return 'None of these sources places this address more precisely than its country.';
-  }
-  if (coarse.length === 0) return undefined;
-  const who = listOf(coarse.map((c) => c.name));
-  const rest =
-    coarse.length === 1
-      ? `${who} reports only the country and appears in the next table.`
-      : `${who} report only the country and appear in the next table.`;
-  return fine.length === 1 ? `From ${fine[0].name}. ${rest}` : rest;
+/** Letters that carry their accent in their shape, which NFD does not take apart. */
+const PLAIN: Record<string, string> = {
+  ø: 'o',
+  ł: 'l',
+  đ: 'd',
+  ß: 'ss',
+  æ: 'ae',
+  œ: 'oe',
+  ı: 'i',
+  þ: 'th',
+};
+
+/**
+ * A value as the comparison sees it: case and accents aside, so "Malmö" is "Malmo". A
+ * geofeed is often written in plain ASCII, and a spelling is not a disagreement.
+ */
+function fold(v: string | null): string | null {
+  if (v === null) return null;
+  return v
+    .normalize('NFD')
+    .replace(/\p{Mn}/gu, '')
+    .toLowerCase()
+    .replace(/[øłđßæœıþ]/g, (c) => PLAIN[c]);
 }
 
-function LocationSection({ data }: { data: BeaconResponse }) {
-  const { sources, locations_agree: agree } = data;
+/**
+ * Every source's ledger, each row marked where the sources that cover its field answer it
+ * differently.
+ *
+ * Only a source that covers a field is compared on it. One that never carries the field —
+ * DB-IP Lite has no postal codes, a country-only database no coordinates — has not
+ * disagreed by having nothing there. One that carries it and has nothing for this address
+ * has answered, and "not available" against a city is a difference.
+ */
+function ledgersOf(sources: Source[]): Ledger[] {
+  const named = withPlaceNames(sources);
+  // Per field, per source: the answer, or undefined where the source does not cover the field.
+  const answers = LEDGER_FIELDS.map((f) =>
+    sources.map((s, i) => (s.provides.includes(f.needs) ? f.of(named[i], s.network) : undefined)),
+  );
+  const differs = answers.map((given) => {
+    const compared = given.filter((a) => a !== undefined).map(fold);
+    return compared.some((v) => v !== compared[0]);
+  });
 
-  if (sources.length === 0) {
+  return sources.flatMap((s, i) => {
+    let topic: LedgerField['topic'] | null = null;
+    const rows = LEDGER_FIELDS.flatMap((f, fi): LedgerRow[] => {
+      const value = answers[fi][i];
+      if (value === undefined) return [];
+      const opens = topic !== null && topic !== f.topic;
+      topic = f.topic;
+      return [
+        {
+          key: f.key,
+          label: f.label,
+          value,
+          differs: differs[fi],
+          opens,
+          literal: f.literal ?? false,
+        },
+      ];
+    });
+    return rows.length > 0 ? [{ source: s.source, kind: SOURCE_KIND[s.source] ?? null, rows }] : [];
+  });
+}
+
+function SourcesSection({ data }: { data: BeaconResponse }) {
+  const title = 'Network and location';
+
+  if (data.sources.length === 0) {
     return (
-      <Section title="Location">
+      <Section title={title}>
         <p className="note">
-          No database has a location for this address. Private and reserved ranges are not
-          geolocated.
+          No database has a network or a location for this address. Private and reserved ranges
+          belong to no autonomous system and are not geolocated.
         </p>
       </Section>
     );
   }
 
-  const places = withPlaceNames(sources);
-  const columns: Column[] = sources.map((s, i) => ({
-    name: s.source,
-    location: places[i],
-    provides: s.provides,
-  }));
-  // Sources that can place an address below its country get the place table; the rest
-  // know the country and nothing finer, and are compared on that, in the second table.
-  // A registry (RIPE) places nothing: it names the country the address is registered to,
-  // beside MaxMind's in a table of its own, and is not counted as agreeing on a place.
-  const fine = columns.filter((c) => PLACE_KEYS.some((k) => c.provides.includes(k)));
-  const coarse = columns.filter((c) => !fine.includes(c) && c.provides.includes('country'));
-  const placing = columns.filter((c) => fine.includes(c) || coarse.includes(c));
-  // A place-table source that knows nothing past the country — the geofeeds — already
-  // shows it in its Place; a seventh column here would only repeat it, and squeeze
-  // every country name onto two lines.
-  const countries = placing.filter(
-    (c) => !fine.includes(c) || COUNTRY_EXTRAS.some((k) => c.provides.includes(k)),
-  );
-  const registries = columns.filter((c) => c.provides.includes('registered_country'));
+  // The registry last: its one line is the registration every other ledger ends on.
+  // Otherwise the order the backend gives, which is its order of preference.
+  const sources = [...data.sources].sort((a, b) => Number(!places(a)) - Number(!places(b)));
+  const placing = sources.filter(places);
   const multiple = placing.length > 1;
+  const agree = data.locations_agree;
+  const withNetwork = sources.filter((s) => s.provides.includes('asn'));
+  const orgs = new Set(withNetwork.map((s) => s.network.asn_org).filter(Boolean));
+  const asns = new Set(withNetwork.map((s) => s.network.asn).filter((a) => a !== null));
 
   return (
     <Section
-      title="Location"
+      title={title}
       note={
         multiple
-          ? `${placing.length} sources ${agree ? 'agree' : 'disagree'}`
-          : (placing[0] ?? columns[0]).name
+          ? `${placing.length} sources ${agree ? 'agree' : 'disagree'} on the location`
+          : undefined
       }
       noteTone={multiple ? (agree ? 'agree' : 'differ') : undefined}
       intro={
@@ -645,73 +719,13 @@ function LocationSection({ data }: { data: BeaconResponse }) {
           : undefined
       }
     >
-      <Group caption="Where it puts you" note={placeNote(fine, coarse)}>
-        {sideBySide(PLACE_FIELDS, fine)}
-      </Group>
-
-      {countries.length > 0 ? (
-        <Group caption="Country">{sideBySide(ADMIN_FIELDS, countries)}</Group>
-      ) : null}
-
-      {registries.length > 0 ? (
-        <Group caption="Registration">{sideBySide(REGISTRY_FIELDS, registries)}</Group>
-      ) : null}
-    </Section>
-  );
-}
-
-/* ------------------------------------------------------------------ network */
-
-const NETWORK_FIELDS: Field<Network>[] = [
-  {
-    label: 'Autonomous system',
-    needs: 'asn',
-    of: (n) => (n.asn === null ? null : `AS${n.asn}`),
-  },
-  { label: 'Operator', needs: 'asn_org', of: (n) => n.asn_org },
-];
-
-function NetworkSection({ data }: { data: BeaconResponse }) {
-  // A source with no network data at all — a country-only database — is not a column here.
-  const sources = data.sources.filter((s) => s.provides.includes('asn'));
-
-  if (sources.length === 0) {
-    return (
-      <Section title="Network">
-        <p className="note">
-          No database has network information for this address. Private and reserved
-          ranges belong to no autonomous system.
+      <Ledgers ledgers={ledgersOf(sources)} />
+      {orgs.size > 1 && asns.size === 1 ? (
+        <p className="group-note">
+          The sources agree on the network but spell its operator differently. That is a naming
+          difference, not a disagreement about where the traffic goes.
         </p>
-      </Section>
-    );
-  }
-
-  const multiple = sources.length > 1;
-  const orgs = new Set(sources.map((s) => s.network.asn_org).filter(Boolean));
-  const asns = new Set(sources.map((s) => s.network.asn).filter((a) => a !== null));
-
-  return (
-    <Section title="Network">
-      <Group
-        note={
-          orgs.size > 1 && asns.size === 1
-            ? 'The sources agree on the network but spell its operator differently. That is a naming difference, not a disagreement about where the traffic goes.'
-            : undefined
-        }
-      >
-        {multiple ? (
-          <Compare
-            columns={sources.map((s) => s.source)}
-            rows={compareRows(
-              NETWORK_FIELDS,
-              sources.map((s) => s.network),
-              sources.map((s) => s.provides),
-            )}
-          />
-        ) : (
-          <Rows>{plainRows(NETWORK_FIELDS, sources[0].network, sources[0].provides)}</Rows>
-        )}
-      </Group>
+      ) : null}
     </Section>
   );
 }

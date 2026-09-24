@@ -339,6 +339,88 @@ const FIXTURES: Fixture[] = [
       source('Geofeeds', location({ country_code: 'US' })),
     ],
   },
+  {
+    // The longest names in use, and every source somewhere else: a 58-letter town, a country
+    // in its long form, an operator that runs to ninety characters. Nothing may push the
+    // page wider than the screen, and the ledgers must still line up.
+    ip: '192.0.2.58',
+    family: 'ipv4',
+    hostname: null,
+    agree: false,
+    sources: [
+      source(
+        'MaxMind',
+        location({
+          city: 'Llanfairpwllgwyngyllgogerychwyrndrobwllllantysiliogogogoch',
+          region: 'Wales',
+          region_code: 'WLS',
+          subdivisions: [{ name: 'Wales', code: 'WLS' }],
+          postal_code: 'LL61 5UJ',
+          country: 'United Kingdom of Great Britain and Northern Ireland',
+          country_code: 'GB',
+          continent: 'Europe',
+          continent_code: 'EU',
+          registered_country: 'Bosnia and Herzegovina',
+          registered_country_code: 'BA',
+          latitude: 53.2239,
+          longitude: -4.1977,
+          accuracy_radius_km: 1000,
+          timezone: 'America/Argentina/Buenos_Aires',
+          local_time: localTime('America/Argentina/Buenos_Aires'),
+        }),
+        net(
+          64500,
+          'Joint Stock Company Scientific-Production Association of Information Technologies and Telecom',
+        ),
+      ),
+      source(
+        'DB-IP',
+        location({
+          city: 'Santa Cruz de la Sierra',
+          region: 'Departamento de Santa Cruz',
+          region_code: 'S',
+          subdivisions: [{ name: 'Departamento de Santa Cruz', code: 'S' }],
+          country: 'Plurinational State of Bolivia',
+          country_code: 'BO',
+          continent: 'South America',
+          continent_code: 'SA',
+          latitude: -17.7863,
+          longitude: -63.1812,
+        }),
+        net(4837, 'CHINA UNICOM China169 Backbone'),
+      ),
+      source(
+        'IPinfo',
+        location({
+          country: 'South Georgia and the South Sandwich Islands',
+          country_code: 'GS',
+          continent: 'Antarctica',
+          continent_code: 'AN',
+        }),
+        net(4837, 'CHINA UNICOM China169 Backbone'),
+      ),
+      source(
+        'IPLocate',
+        location({
+          country: 'Democratic Republic of the Congo',
+          country_code: 'CD',
+          continent: 'Africa',
+          continent_code: 'AF',
+        }),
+        net(64500, 'JSC NPO ITT'),
+      ),
+      source('RIPE', location({ registered_country_code: 'GB' })),
+      source(
+        'Geofeeds',
+        location({
+          city: 'Montero',
+          region_code: 'S',
+          subdivisions: [{ name: 'Departamento de Santa Cruz', code: 'S' }],
+          country_code: 'BO',
+        }),
+      ),
+    ],
+  },
 ];
 
 function hash(s: string): number {

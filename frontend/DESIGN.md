@@ -40,6 +40,8 @@ not. That split is the whole typographic system and it should be followed litera
 | Section heading | Outfit | 1.125rem / 1.3 | 600 | −0.01em |
 | Row label | Outfit | 0.8125rem / 1.4 | 300 | 0 |
 | Row value | JetBrains Mono | 0.875rem / 1.5 | 400 | 0 |
+| Ledger name | Outfit | 0.875rem / 1.4 | 600 | 0 |
+| Ledger value | JetBrains Mono | 0.8125rem / 1.5 | 400 | 0 |
 | Fingerprint | JetBrains Mono | `clamp(0.75rem, 2.2vw, 1rem)` / 1.6 | 400 | 0 |
 | Annotation | Outfit | 0.75rem / 1.4 | 300 | 0 |
 
@@ -95,16 +97,17 @@ non-essential hints only and never carries information on its own.
 Base unit 4px; scale 4 8 12 16 24 32 48 64 96. Nothing between.
 
 Single column, left-aligned below the fold, centred in the hero. The readout is 720px wide
-or three quarters of the viewport, whichever is wider: the comparison tables set up to
-seven sources side by side, and at 720px their values wrap — "Europe/Madrid" onto two
-lines. Prose in it keeps the 68ch measure however wide the column gets. Gutters 16px
-mobile, 24px tablet, 32px desktop. Section rhythm 48px mobile, 64px desktop.
+or three quarters of the viewport, whichever is wider: the source ledgers sit side by side,
+as many as fit, and at 720px only two do. Prose in it keeps the 68ch measure however wide
+the column gets. Gutters 16px mobile, 24px tablet, 32px desktop. Section rhythm 48px
+mobile, 64px desktop.
 
 The readout is three levels deep and no more: **section → group → table**. A section is a
 subject and carries an `h2`. A group is one table with a sentence-case caption saying what
 that table is about. Nothing nests further. Sections used to be a single run of rows — TLS
 ran to twenty of them — and nothing marked where "what the client offered" ended and "what
-the two sides agreed on" began.
+the two sides agreed on" began. In "Network and location" the groups are the sources'
+ledgers, each headed by the source's name instead of a caption.
 
 Rows are a two-column grid: a label column that right-aligns against the hairline, and a
 value column. On mobile the grid collapses to stacked label-over-value — the label column
@@ -209,63 +212,74 @@ segments separated, with the prefix decomposed underneath. This is the one place
 is spent, and it is specific to beacon: it only makes sense because the server computed the
 value and knows what each part means.
 
-**Disagreement is shown, never resolved.** Where the GeoIP sources differ, they get a real
-table — one column per source, one row per field — because the comparison is
-two-dimensional and only lines up as a table. "MaxMind says ±1000 km, DB-IP says ±50 km"
-is a sentence you read off a column, not out of a paragraph. Beacon is the only service
-that does this; collapsing it to a single answer would discard the reason it exists.
+**Disagreement is shown, never resolved.** Every source gets a ledger — its whole answer
+in one list, under its name — and the ledgers stand side by side. "MaxMind says ±1000 km,
+DB-IP says ±50 km" is read off two ledgers, not out of a paragraph, and nothing merges the
+answers or picks one. Beacon is the only service that does this; collapsing it to a single
+answer would discard the reason it exists.
 
-The disagreement is marked on the **row**, as a `--warn` edge against the field name, and
-the values stay in `--ink`. Painting the differing values amber was tried first and read
-backwards: two databases usually differ on most fields, so nearly every cell came out
-amber and the one agreeing row was the thing that stood out. Agreement is the quiet
-default and the marker is what you scan for.
+A ledger lists only the fields its source covers, so nothing in one is a placeholder: no
+dashes, no empty cells. The rows still line up across ledgers, and by construction rather
+than luck. The fields come in one order in every ledger — the network, then the place from
+the continent down, then the registration — and it is the order in which each database's
+fields run unbroken from the top: IPinfo and IPLocate cover the first four, DB-IP those and
+the next four, MaxMind all thirteen. So a field falls on the same line in each of them. That
+holds only while the network comes first, because it is the one thing every database gives;
+with the place first, IPinfo's operator sat nine lines above MaxMind's. The geofeeds and the
+registry cover too little to line up with anything and are listed in the same order from the
+top. The ledgers in a row of the grid share their row lines (subgrid), so a value that wraps
+in one moves the rules under it in all of them, and a long name does not undo the alignment.
 
-This also settles an attribution bug the old layout had: the merged values were listed
+The ledgers fill the readout's width. As many sit in a row as fit at 17.5rem each — enough
+for "Autonomous system" and a pair of coordinates — 24px apart, and then the rows are
+evened out: as few rows as hold them all, then as few columns as fill those rows. Six
+ledgers where four would fit go three and three, never four and two, and two take half the
+width each rather than leaving a third of it empty. A phone gets one column. The registry
+comes last, because its one line is the registration every other ledger ends on.
+
+The disagreement is marked on the **row**, as a `--warn` edge between the field name and the
+value, with the name in `--warn`, and the values stay in `--ink`. It is marked in every ledger
+the field is in: that says some source answers otherwise, and the other ledgers say which.
+Painting the differing values amber was tried first and read backwards: two databases
+usually differ on most fields, so nearly every value came out amber and the one agreeing row
+was the thing that stood out. Agreement is the quiet default and the marker is what you scan
+for.
+
+This also settles an attribution bug an early layout had: the merged values were listed
 unattributed directly under a heading announcing that the sources disagreed, which left no
-way to tell whose numbers those were. When there is more than one source, every location
-and network field now sits in a column with a name on it.
+way to tell whose numbers those were. Every value now sits under the name of the source that
+gave it.
+
+Ledgers replaced a comparison table — one column per source, one row per field. It lined the
+answers up too, but once six sources of very different precision sat in it, most of its
+cells were dashes, and its columns were too narrow to keep a country's name on one line.
 
 **A source is compared only on what it covers.** The sources differ in precision, not
 just in opinion: MaxMind has postal codes and DB-IP Lite has none for any address; IPinfo
 and IPLocate know the country and not the city; the geofeeds name a city, but only for the
 ranges networks publish them for.
 Each source says what it covers (`provides` in the response), and the comparison honours
-it. Otherwise the marker loses its meaning: with five sources, a country-only database's
-empty "Coordinates" cell would put a `--warn` edge on nearly every row whether anyone
-disagreed or not.
+it. Otherwise the marker loses its meaning: a country-only database's missing coordinates
+would put a `--warn` edge on nearly every row whether anyone disagreed or not.
 
-- A source joins a table only if it covers something in it. Country-level sources are not
-  columns in "Where it puts you"; a note under that table names them and points to the
-  next table, where they are. A source with no network data is not a column under
-  "Network".
-- A cell outside a source's data is a dash in `--ink-4`, with "not in this source's data"
-  for screen readers, and it does not count when deciding whether the row differs. That
-  is distinct from the italic "not available" in `--ink-3`, which is a source that covers
-  the field answering "nothing for this address" — an answer, and so still a difference.
-- Stacked on a phone, where every value already names its source, uncovered cells are
-  dropped rather than dashed: a list has no columns to hold in line.
-- A row no column covers is not drawn at all, and neither is a table. "Registration"
-  exists only while MaxMind or RIPE is configured.
-- A place-table source that says nothing past the country gets no column in "Country":
-  its Place already shows the country. That is the geofeeds, which give a city, a region
-  code and a country code — the network's own word — and a seventh column there would
-  squeeze every country name onto two lines.
+- A field outside a source's data is not in its ledger, and does not count when deciding
+  whether the sources differ on it. That is distinct from the italic "not available" in
+  `--ink-3`, which is a source that covers the field answering "nothing for this address" —
+  an answer, and so still a difference.
+- A source with no network data simply starts at the place, and one with nothing at all in
+  these fields gets no ledger.
 - A registry places nothing. RIPE names the country an address is registered to — the
-  holder's say, which for a VPN or a leased range is nowhere near the visitor — so it is
-  compared with MaxMind's registered country in a table of its own, "Registration", and it
-  is not counted in "N sources agree", which is about where you are. As a column in
-  "Country" it would add a column of dashes to a table already six wide, where names
-  already wrap. A registered country that differs is marked on its row like any other
-  field.
+  holder's say, which for a VPN or a leased range is nowhere near the visitor — so its
+  ledger is the one line "Registered to", compared with MaxMind's registered country, and
+  it is not counted in "N sources agree on the location", which is about where you are.
 
 Country names are shown one way per code — the first source's spelling, or the browser's
 own name for a code no source names. A region given as a code alone takes the name a
-source uses for the same code in the same country, and stays unnamed otherwise. Values
+source uses for the same code in the same country, and is shown as the code otherwise. Values
 are compared without case or accents, so a geofeed's plain-ASCII "Malmo" does not mark a
 row against "Malmö". One source can say "United States of America" where another says
 "United States", and comparing the text would present a spelling as a disagreement about
-where the visitor is. The JSON keeps every source's own spelling; the table compares
+where the visitor is. The JSON keeps every source's own spelling; the ledgers compare
 places, not orthography.
 
 The connection's flags are assertions by particular databases, so "Marked as" says whose,
