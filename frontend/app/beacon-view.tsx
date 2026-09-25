@@ -5,7 +5,7 @@ import { usePathname } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 
 import { AkamaiBreakdown, Ja4Breakdown } from './components/fingerprint';
-import type { Ledger, LedgerRow } from './components/ledgers';
+import type { Lead, Ledger, LedgerRow } from './components/ledgers';
 import { Ledgers } from './components/ledgers';
 import { Chips, Flag, Group, Row, Rows, Section } from './components/rows';
 import type { BeaconResponse, Location, Network, Provides, Source } from '@/lib/types';
@@ -408,39 +408,53 @@ function Connection({ data }: { data: BeaconResponse }) {
 /**
  * One line of a source's ledger.
  *
- * `needs` is what a source must provide for the field to be in its ledger at all. Sources
+ * `needs` is what a source must provide for the field to apply to it at all. Sources
  * differ in precision — some place an address in a city, some only in a country — and a
- * field outside a source's data is left out of that source's ledger rather than shown
- * empty, and does not count when deciding whether the sources differ on it.
+ * field outside a source's data does not count when deciding whether the sources differ on
+ * it. Below the leading three it is left out of the ledger; among them it is a dash, so the
+ * three keep the same lines in every ledger.
  */
 type LedgerField = {
   key: string;
   label: string;
   needs: Provides;
-  topic: 'network' | 'place' | 'registration';
+  topic: 'lead' | 'place' | 'registration';
   of: (l: Location, n: Network) => string | null;
+  /** The colour a leading field's value is set in. Only the leading three have one. */
+  lead?: Lead;
   /** Left alone by a page translator: an identifier or a name, not a word. */
   literal?: boolean;
 };
 
 /**
- * Every ledger's fields, in one order: the network, then the place from the continent
- * down, then the registration.
+ * Every ledger's fields, in one order. It opens with the three facts most people look for —
+ * the country, the autonomous system and its operator — each in a colour of its own and on
+ * the same three lines in every ledger: a source that does not cover one shows a dash there
+ * rather than letting the next field move up. Then whatever else the source covers, the
+ * place from the continent down, and the registration last.
  *
- * The order is what lines the ledgers up. Each database's fields run unbroken from the top
- * of the list: IPinfo and IPLocate cover the first four, DB-IP those and the next four,
- * MaxMind all of them. So a field falls on the same line in every database's ledger with
- * no gap left for a field a source does not carry — and that holds only while the network
- * comes first, because it is the one thing every database gives. Putting the place first
- * leaves IPinfo's operator nine lines above MaxMind's. The geofeeds and the registry cover
- * too little to line up with anything and are listed in the same order from the top.
+ * Below the three, the ledgers line up because of the order, not because of placeholders.
+ * Each database's fields run unbroken from the top of the list: IPinfo and IPLocate cover
+ * the first four, DB-IP the first eight, MaxMind all of them. So a field falls on the same
+ * line in every database's ledger and none of them needs a gap. The geofeeds and the
+ * registry cover too little to line up below the three, and list what they have from there.
  */
 const LEDGER_FIELDS: LedgerField[] = [
+  {
+    // The name alone: it is one name per code by now (see withPlaceNames).
+    key: 'country',
+    label: 'Country',
+    needs: 'country',
+    topic: 'lead',
+    lead: 'country',
+    of: (l) => l.country ?? l.country_code,
+  },
   {
     key: 'asn',
     label: 'Autonomous system',
     needs: 'asn',
-    topic: 'network',
+    topic: 'lead',
+    lead: 'asn',
     of: (_, n) => (n.asn === null ? null : `AS${n.asn}`),
     literal: true,
   },
@@ -448,7 +462,8 @@ const LEDGER_FIELDS: LedgerField[] = [
     key: 'org',
     label: 'Operator',
     needs: 'asn_org',
-    topic: 'network',
+    topic: 'lead',
+    lead: 'operator',
     of: (_, n) => n.asn_org,
     literal: true,
   },
@@ -458,14 +473,6 @@ const LEDGER_FIELDS: LedgerField[] = [
     needs: 'continent',
     topic: 'place',
     of: (l) => l.continent,
-  },
-  {
-    // The name alone: it is one name per code by now (see withPlaceNames).
-    key: 'country',
-    label: 'Country',
-    needs: 'country',
-    topic: 'place',
-    of: (l) => l.country ?? l.country_code,
   },
   {
     key: 'eu',
@@ -662,21 +669,29 @@ function ledgersOf(sources: Source[]): Ledger[] {
     let topic: LedgerField['topic'] | null = null;
     const rows = LEDGER_FIELDS.flatMap((f, fi): LedgerRow[] => {
       const value = answers[fi][i];
-      if (value === undefined) return [];
+      const covered = value !== undefined;
+      // Past the leading three, a field the source does not cover is not in its ledger.
+      if (!covered && !f.lead) return [];
       const opens = topic !== null && topic !== f.topic;
       topic = f.topic;
       return [
         {
           key: f.key,
           label: f.label,
-          value,
-          differs: differs[fi],
+          value: value ?? null,
+          covered,
+          // A dash is outside the comparison, so it is never marked.
+          differs: covered && differs[fi],
           opens,
+          lead: f.lead ?? null,
           literal: f.literal ?? false,
         },
       ];
     });
-    return rows.length > 0 ? [{ source: s.source, kind: SOURCE_KIND[s.source] ?? null, rows }] : [];
+    // A source with nothing in any of these fields gets no ledger, not three dashes.
+    return rows.some((r) => r.covered)
+      ? [{ source: s.source, kind: SOURCE_KIND[s.source] ?? null, rows }]
+      : [];
   });
 }
 
@@ -694,7 +709,7 @@ function SourcesSection({ data }: { data: BeaconResponse }) {
     );
   }
 
-  // The registry last: its one line is the registration every other ledger ends on.
+  // The registry last: its only answer is the registration every other ledger ends on.
   // Otherwise the order the backend gives, which is its order of preference.
   const sources = [...data.sources].sort((a, b) => Number(!places(a)) - Number(!places(b)));
   const placing = sources.filter(places);

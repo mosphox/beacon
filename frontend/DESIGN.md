@@ -75,7 +75,10 @@ design decision, not a chore.
 | `--ink-3` | `#6b7280` | labels, captions |
 | `--ink-4` | `#4b5563` | hints, disabled |
 | `--accent` | `#a78bfa` | the one highlight: emphasised values |
-| `--cy` `--vi` `--pk` | `#00d4ff` `#7c3aed` `#f472b6` | the hero IP gradient, nowhere else |
+| `--cy` `--vi` `--pk` | `#00d4ff` `#7c3aed` `#f472b6` | the hero IP gradient; `--cy` and `--pk` also lead the ledgers, as flat colour |
+| `--lead-country` | `--accent` | the country, first line of every ledger, as the hero sets it |
+| `--lead-asn` | `--cy` | the autonomous system, second line of every ledger |
+| `--lead-operator` | `--pk` | the operator, third line of every ledger |
 | `--ok` | `#10b981` | sources agree |
 | `--warn` | `#f59e0b` | sources disagree |
 
@@ -88,6 +91,14 @@ order rather than approximating with a flat colour.
 
 The cyan→violet→pink gradient belongs to the address and to nothing else. Reusing it on
 headings or buttons would spend the page's one memorable moment on furniture.
+
+Its hues come back once, as flat colour on three values: the country, the autonomous
+system and the operator that open every ledger. Those are the facts the hero states under
+the address, and the ones people look for first, so each gets a colour and keeps it in
+every ledger, where it reads across the grid as a band. The country takes the accent
+violet it already has in the hero. That is data, not furniture, and a colour on a word is
+not the gradient. Nothing else in the readout takes these three, and none of them is a
+status: agreement stays `--ok` and disagreement `--warn`.
 
 Contrast: `--ink` on `--bg-1` is 12.8:1, `--ink-2` 6.9:1, `--ink-3` 4.6:1. `--ink-4` is for
 non-essential hints only and never carries information on its own.
@@ -218,27 +229,30 @@ DB-IP says ±50 km" is read off two ledgers, not out of a paragraph, and nothing
 answers or picks one. Beacon is the only service that does this; collapsing it to a single
 answer would discard the reason it exists.
 
-A ledger lists only the fields its source covers, so nothing in one is a placeholder: no
-dashes, no empty cells. The rows still line up across ledgers, and by construction rather
-than luck. The fields come in one order in every ledger — the network, then the place from
-the continent down, then the registration — and it is the order in which each database's
-fields run unbroken from the top: IPinfo and IPLocate cover the first four, DB-IP those and
-the next four, MaxMind all thirteen. So a field falls on the same line in each of them. That
-holds only while the network comes first, because it is the one thing every database gives;
-with the place first, IPinfo's operator sat nine lines above MaxMind's. The geofeeds and the
-registry cover too little to line up with anything and are listed in the same order from the
-top. The ledgers in a row of the grid share their row lines (subgrid), so a value that wraps
-in one moves the rules under it in all of them, and a long name does not undo the alignment.
+Every ledger opens with the same three lines — the country, the autonomous system, the
+operator — each value in its own colour, and a strong rule under them. A source that does
+not cover one of the three shows a dash on its line rather than letting the next field move
+up, so the three stay level across the whole grid. After them a ledger lists only the
+fields its source covers: the place from the continent down, then the registration.
+
+Below the three the rows still line up across ledgers, and by construction rather than by
+placeholders. The fields come in one order in every ledger, and it is the order in which
+each database's fields run unbroken from the top: IPinfo and IPLocate cover the first four,
+DB-IP the first eight, MaxMind all thirteen. So a field falls on the same line in each of
+them. The geofeeds and the registry cover too little to line up below the three and list
+what they have from there. The ledgers in a row of the grid share their row lines
+(subgrid), so a value that wraps in one moves the rules under it in all of them, and a long
+name does not undo the alignment.
 
 The ledgers fill the readout's width. As many sit in a row as fit at 17.5rem each — enough
 for "Autonomous system" and a pair of coordinates — 24px apart, and then the rows are
 evened out: as few rows as hold them all, then as few columns as fill those rows. Six
 ledgers where four would fit go three and three, never four and two, and two take half the
 width each rather than leaving a third of it empty. A phone gets one column. The registry
-comes last, because its one line is the registration every other ledger ends on.
+comes last, because its only answer is the registration every other ledger ends on.
 
 The disagreement is marked on the **row**, as a `--warn` edge between the field name and the
-value, with the name in `--warn`, and the values stay in `--ink`. It is marked in every ledger
+value, with the name in `--warn`, and the values keep their own colour. It is marked in every ledger
 the field is in: that says some source answers otherwise, and the other ledgers say which.
 Painting the differing values amber was tried first and read backwards: two databases
 usually differ on most fields, so nearly every value came out amber and the one agreeing row
@@ -263,15 +277,16 @@ it. Otherwise the marker loses its meaning: a country-only database's missing co
 would put a `--warn` edge on nearly every row whether anyone disagreed or not.
 
 - A field outside a source's data is not in its ledger, and does not count when deciding
-  whether the sources differ on it. That is distinct from the italic "not available" in
-  `--ink-3`, which is a source that covers the field answering "nothing for this address" —
-  an answer, and so still a difference.
-- A source with no network data simply starts at the place, and one with nothing at all in
-  these fields gets no ledger.
+  whether the sources differ on it. Among the leading three it is a dash in `--ink-4`,
+  with "not in this source's data" for screen readers, and is never marked. Both are
+  distinct from the italic "not available" in `--ink-3`, which is a source that covers
+  the field answering "nothing for this address" — an answer, and so still a difference.
+- A source with nothing at all in these fields gets no ledger, not three dashes.
 - A registry places nothing. RIPE names the country an address is registered to — the
   holder's say, which for a VPN or a leased range is nowhere near the visitor — so its
-  ledger is the one line "Registered to", compared with MaxMind's registered country, and
-  it is not counted in "N sources agree on the location", which is about where you are.
+  ledger is the leading three as dashes and then "Registered to", compared with MaxMind's
+  registered country, and it is not counted in "N sources agree on the location", which is
+  about where you are.
 
 Country names are shown one way per code — the first source's spelling, or the browser's
 own name for a code no source names. A region given as a code alone takes the name a

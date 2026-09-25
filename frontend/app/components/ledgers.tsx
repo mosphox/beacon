@@ -1,17 +1,26 @@
 import { Fragment, useId } from 'react';
 import type { CSSProperties } from 'react';
 
+/** The three facts every ledger opens with, each set in a colour of its own. */
+export type Lead = 'country' | 'asn' | 'operator';
+
 export type LedgerRow = {
   key: string;
   label: string;
   /** Null is an answer: the source covers this field and has nothing for this address. */
   value: string | null;
+  /**
+   * False only on one of the leading three that the source does not cover, which holds its
+   * line with a dash. Every other field a source does not cover is left out of its ledger.
+   */
+  covered: boolean;
   /** Another source that covers this field answers it differently. */
   differs: boolean;
   /** The first row of the next kind of fact: the place after the network, the registration after the place. */
   opens: boolean;
   /** An identifier or a name, which a page translator would garble: an AS, an operator, a time zone. */
   literal: boolean;
+  lead: Lead | null;
 };
 
 export type Ledger = { source: string; kind: string | null; rows: LedgerRow[] };
@@ -43,12 +52,12 @@ function Value({ value }: { value: string }) {
 /**
  * Ledgers set each source's whole answer down in one list, and the lists side by side.
  *
- * A ledger holds only the fields its source covers, so nothing in one is a placeholder.
- * The rows still line up across ledgers, because the fields come in one order everywhere
- * and that order is chosen so each database's fields run unbroken from the top: see
- * LEDGER_FIELDS. The ledgers in a row of the grid also share their row lines (subgrid), so
- * a value that wraps in one ledger moves the rules under it in all of them, and the
- * alignment survives a long name.
+ * Every ledger opens with the same three lines — country, autonomous system, operator —
+ * and after them holds only the fields its source covers. The rows line up across ledgers,
+ * because the fields come in one order everywhere and that order is chosen so each
+ * database's fields run unbroken from the top: see LEDGER_FIELDS. The ledgers in a row of
+ * the grid also share their row lines (subgrid), so a value that wraps in one ledger moves
+ * the rules under it in all of them, and the alignment survives a long name.
  *
  * How many sit in a row is the CSS's decision: as many as fit, then evened out, so six
  * where four would fit go three and three, never four and two.
@@ -85,10 +94,18 @@ export function Ledgers({ ledgers }: { ledgers: Ledger[] }) {
                     {r.label}
                     {r.differs ? <span className="sr-only"> (the sources differ)</span> : null}
                   </dt>
-                  {r.value === null ? (
+                  {!r.covered ? (
+                    <dd className="uncovered">
+                      <span aria-hidden="true">—</span>
+                      <span className="sr-only">not in this source’s data</span>
+                    </dd>
+                  ) : r.value === null ? (
                     <dd className="absent">not available</dd>
                   ) : (
-                    <dd translate={r.literal ? 'no' : undefined}>
+                    <dd
+                      className={r.lead ? `lead-${r.lead}` : undefined}
+                      translate={r.literal ? 'no' : undefined}
+                    >
                       <Value value={r.value} />
                     </dd>
                   )}

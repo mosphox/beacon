@@ -32,6 +32,14 @@
   --ok: #10b981;
   --warn: #f59e0b;
 
+  /* The three facts every ledger opens with, each in a colour of its own: the country in
+     the violet the hero already gives it, the autonomous system and its operator in the
+     cyan and pink the address's gradient runs between. Flat colour on a value, never the
+     gradient itself. */
+  --lead-country: var(--accent);
+  --lead-asn: var(--cy);
+  --lead-operator: var(--pk);
+
   --gutter: 16px;
   /* Three quarters of the viewport where that is wider than 720px: the source ledgers sit
      side by side, as many as fit, and at 720px only two do. Prose inside keeps its own
@@ -680,11 +688,13 @@ button.ip {
   border-bottom: 1px solid var(--rule-strong);
 }
 
+/* In --ink, not the accent: the colour in a ledger belongs to the three facts it opens
+   with, and a violet name would read as a fourth. */
 .ledger-name {
   font-size: 0.875rem;
   font-weight: 600;
   line-height: 1.4;
-  color: var(--accent);
+  color: var(--ink);
 }
 
 .ledger-kind {
@@ -711,9 +721,8 @@ button.ip {
   padding: 8px 0;
 }
 
-/* Between rows, never after the last one, as in every other table on the page. Where the
-   ledger moves on from the network to the place, and from the place to the registration,
-   the rule is the strong one. */
+/* Between rows, never after the last one, as in every other table on the page. Under the
+   leading three, and before the registration, the rule is the strong one. */
 .ledger-row + .ledger-row {
   border-top: 1px solid var(--rule);
 }
@@ -744,6 +753,20 @@ button.ip {
   user-select: text;
 }
 
+/* The facts to find first, in the same colour in every ledger, so each reads across the
+   grid as a band. */
+.ledger-row dd.lead-country {
+  color: var(--lead-country);
+}
+
+.ledger-row dd.lead-asn {
+  color: var(--lead-asn);
+}
+
+.ledger-row dd.lead-operator {
+  color: var(--lead-operator);
+}
+
 /* --ink-3, not the --ink-4 the row tables use for an absence. Here the absence is a
    difference — one source has a postal code and the other does not — so it carries
    information and has to clear 4.5:1. */
@@ -751,6 +774,16 @@ button.ip {
   font-family: var(--font-outfit), sans-serif;
   font-style: italic;
   color: var(--ink-3);
+  user-select: none;
+}
+
+/* One of the leading three that the source does not cover: not an answer, so not the
+   italic absence above, and outside the comparison. A dash in --ink-4 is a hint and
+   nothing more; the words are there for screen readers. It holds the line so the three
+   stay level across the grid. */
+.ledger-row dd.uncovered {
+  font-family: var(--font-outfit), sans-serif;
+  color: var(--ink-4);
   user-select: none;
 }
 
